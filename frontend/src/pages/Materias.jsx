@@ -36,7 +36,7 @@ export default function Materias() {
     <>
       <div className="cartao">
         <div className="cartao-cabecalho">
-          <h3><Package size={15} className="icone-cartao" />Matérias-primas de {empresa ? (empresa.matriz ? `${empresa.nome} (matriz)` : empresa.nome) : }</h3>
+          <h3><Package size={15} className="icone-cartao" />Matérias-primas de {empresa ? (empresa.matriz ? `${empresa.nome} (matriz)` : empresa.nome) : ""}</h3>
           {podeEditar && <button className="botao" onClick={() => setEditando({ novo: true })}>+ Nova matéria-prima</button>}
         </div>
         {ehFilial && (
