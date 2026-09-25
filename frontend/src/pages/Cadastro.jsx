@@ -20,8 +20,7 @@ export default function Cadastro({ aoEntrar }) {
     if (f.senha.length < 8) return setErro('Senha deve ter ao menos 8 caracteres');
     setOcupado(true);
     try {
-      const corpo = { ...f, nome_fantasia: f.nome_fantasia || undefined };
-      aoEntrar(await api('/auth/cadastro', { method: 'POST', body: corpo }));
+      aoEntrar(await api('/auth/cadastro', { method: 'POST', body: { ...f, nome_fantasia: f.nome_fantasia || undefined } }));
     } catch (err) {
       setErro(err.message);
     } finally {
@@ -43,21 +42,21 @@ export default function Cadastro({ aoEntrar }) {
           <Campo rotulo="Nome da conta *" dica="nome do grupo ou da empresa principal">
             <input value={f.conta_nome} onChange={(e) => mudar('conta_nome', e.target.value)} autoFocus />
           </Campo>
-        </h1>
+        </div>
         <div className="linha-campos">
           <Campo rotulo="Seu nome completo *"><input value={f.nome} onChange={(e) => mudar('nome', e.target.value)} /></Campo>
           <Campo rotulo="E-mail *"><input type="email" value={f.email} onChange={(e) => mudar('email', e.target.value)} autoComplete="username" /></Campo>
-        </h1>
+        </div>
         <div className="linha-campos">
           <Campo rotulo="Senha *" dica="mínimo de 8 caracteres">
             <input type="password" value={f.senha} onChange={(e) => mudar('senha', e.target.value)} autoComplete="new-password" />
           </Campo>
-        </h1>
+        </div>
         <h4 style={{ margin: '12px 0 4px' }}>Primeira empresa</h4>
         <div className="linha-campos">
           <Campo rotulo="Razão social *"><input value={f.razao_social} onChange={(e) => mudar('razao_social', e.target.value)} /></Campo>
           <Campo rotulo="Nome fantasia"><input value={f.nome_fantasia} onChange={(e) => mudar('nome_fantasia', e.target.value)} /></Campo>
-        </h1>
+        </div>
         <div className="linha-campos">
           <Campo rotulo="UF" largura={90}>
             <select value={f.uf} onChange={(e) => mudar('uf', e.target.value)}>{UFS.map((u) => <option key={u} value={u}>{u}</option>)}</select>
@@ -67,8 +66,8 @@ export default function Cadastro({ aoEntrar }) {
               {REGIMES.map((r) => <option key={r.valor} value={r.valor}>{r.rotulo}</option>)}
             </select>
           </Campo>
-        </h1>
-        <button className="botao" type="submit" disabled={ocupado} style={{ width: '100%', marginTop: 8 }}>
+        </div>
+        <button className="botao" type="submit" disabled={ocupado} style={{ width: '100%', justifyContent: 'center', marginTop: 8 }}>
           {ocupado ? 'Criando…' : 'Criar conta e entrar'}
         </button>
         <div className="login-demo">

@@ -39,7 +39,7 @@ export default function Login({ aoEntrar }) {
           <span className="campo-rotulo">Senha</span>
           <input type="password" value={senha} onChange={(e) => setSenha(e.target.value)} autoComplete="current-password" />
         </label>
-        <button className="botao" type="submit" disabled={ocupado} style={{ width: '100%', marginTop: 8 }}>
+        <button className="botao" type="submit" disabled={ocupado} style={{ width: '100%', justifyContent: 'center', marginTop: 8 }}>
           {ocupado ? 'Entrando…' : 'Entrar'}
         </button>
         <div className="login-demo">
