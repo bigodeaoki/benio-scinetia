@@ -435,3 +435,6 @@ table.tabela { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 
 .ocupacao { background: #edf0f4; border-radius: 6px; height: 10px; overflow: hidden; min-width: 120px; }
 .ocupacao span { display: block; height: 100%; border-radius: 6px; }
+
+/* Itens do menu são links do roteador (NavLink): sem sublinhado, mesma cor do menu */
+a.item-menu { text-decoration: none; color: inherit; }
