@@ -1,5 +1,5 @@
 import React from 'react';
-import { Building2, LayoutDashboard, LogOut, Network, Package, Users } from 'lucide-react';
+import { Boxes, Building2, LayoutDashboard, LogOut, Network, Package, Users } from 'lucide-react';
 import { NavLink, Route, Routes, useLocation } from 'react-router-dom';
 import { SessaoContext } from './App.jsx';
 import { limparSessao } from './api.js';
@@ -7,6 +7,7 @@ import { LogoScientia } from './ui.jsx';
 import { PAPEL_ROTULOS } from './dados.js';
 import Dashboard from './pages/Dashboard.jsx';
 import Materias from './pages/Materias.jsx';
+import Estoque from './pages/Estoque.jsx';
 import Filiais from './pages/Filiais.jsx';
 import Usuarios from './pages/Usuarios.jsx';
 import AdminEmpresas from './pages/admin/Empresas.jsx';
@@ -23,7 +24,13 @@ function menuDe(papel) {
       { caminho: '/admin/usuarios', titulo: 'Usuários', Icone: Users },
     ];
   }
-  const itens = [inicio, { grupo: 'Cadastros' }, { caminho: '/materias', titulo: 'Matérias-primas', Icone: Package }];
+  const itens = [
+    inicio,
+    { grupo: 'Cadastros' },
+    { caminho: '/materias', titulo: 'Matérias-primas', Icone: Package },
+    { grupo: 'Operação' },
+    { caminho: '/estoque', titulo: 'Estoque', Icone: Boxes },
+  ];
   if (papel === 'owner') {
     itens.push({ grupo: 'Minha empresa' });
     itens.push({ caminho: '/filiais', titulo: 'Filiais', Icone: Network });
@@ -82,6 +89,7 @@ export default function Shell() {
           <Routes>
             <Route index element={<Dashboard />} />
             {!ehAdmin && <Route path="materias" element={<Materias />} />}
+            {!ehAdmin && <Route path="estoque" element={<Estoque />} />}
             {ehDono && <Route path="filiais" element={<Filiais />} />}
             {ehDono && <Route path="usuarios" element={<Usuarios />} />}
             {ehAdmin && <Route path="admin/empresas" element={<AdminEmpresas />} />}

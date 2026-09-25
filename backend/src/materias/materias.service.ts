@@ -73,7 +73,7 @@ export class MateriasService {
   }
 
   // Empresas cujas matérias-primas a empresa ativa enxerga: ela mesma e, se for filial, a matriz
-  private visiveis(escopo: EscopoSessao, empresaId: string): string[] {
+  visiveis(escopo: EscopoSessao, empresaId: string): string[] {
     return empresaId !== escopo.matrizId && escopo.matrizId ? [empresaId, escopo.matrizId] : [empresaId];
   }
 

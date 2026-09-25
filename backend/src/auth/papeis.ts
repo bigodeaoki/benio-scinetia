@@ -12,4 +12,5 @@ export const PERM = {
   filiais: ['owner'],                                               // filiais do próprio grupo — o dono, nunca o admin
   usuarios: ['owner'],                                              // usuários do próprio grupo
   materias: ['owner', 'compras', 'producao', 'administrativo'],     // cadastro de matérias-primas
+  estoque: ['owner', 'compras', 'producao', 'administrativo', 'operador'], // entradas de compra no estoque
 };

@@ -86,3 +86,23 @@ CREATE TABLE materias_primas (
   FOREIGN KEY (empresa_id) REFERENCES empresas(id) ON DELETE CASCADE,
   FOREIGN KEY (matriz_id) REFERENCES empresas(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
+
+-- Estoque: entradas de compra de matéria-prima por empresa. Cada entrada é um
+-- lote: quantidade na unidade informada (kg, L, un...), data da compra e de
+-- vencimento. A matéria-prima pode ser da própria empresa ou da matriz.
+-- Entrada errada é cancelada (ativo = 0), nunca apagada.
+CREATE TABLE estoque (
+  id CHAR(36) NOT NULL PRIMARY KEY,
+  empresa_id CHAR(36) NOT NULL,
+  materia_prima_id CHAR(36) NOT NULL,
+  quantidade DECIMAL(14,3) NOT NULL,
+  unidade VARCHAR(20) NOT NULL,
+  data_compra DATE NOT NULL,
+  data_vencimento DATE NULL,
+  ativo TINYINT(1) NOT NULL DEFAULT 1,
+  criado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  atualizado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  KEY idx_estoque_empresa (empresa_id, materia_prima_id, data_compra),
+  FOREIGN KEY (empresa_id) REFERENCES empresas(id) ON DELETE CASCADE,
+  FOREIGN KEY (materia_prima_id) REFERENCES materias_primas(id) ON DELETE CASCADE
+) ENGINE=InnoDB;

@@ -17,6 +17,7 @@ async function criarPool(): Promise<mysql.Pool> {
     waitForConnections: true,
     connectionLimit: 10,
     decimalNumbers: true,
+    dateStrings: ['DATE'],   // DATE vem como 'AAAA-MM-DD', sem deslocamento de fuso
     charset: 'utf8mb4',
   });
   for (let tentativa = 1; ; tentativa++) {

@@ -56,11 +56,16 @@ export function Confirmacao() {
 }
 
 /* ---------- Formatação ---------- */
+// Datas puras ('AAAA-MM-DD') não passam por Date: evita voltar um dia pelo fuso
 export const fmtData = (v) => {
   if (!v) return '—';
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(v));
+  if (m) return `${m[3]}/${m[2]}/${m[1]}`;
   const d = new Date(v);
   return isNaN(d) ? String(v) : d.toLocaleDateString('pt-BR');
 };
+export const hoje = () => new Date().toISOString().slice(0, 10);
+export const fmtQtd = (v, casas = 3) => (v == null || isNaN(v) ? '—' : Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: casas }));
 export const fmtDataHora = (v) => {
   if (!v) return '—';
   const d = new Date(v);

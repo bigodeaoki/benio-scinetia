@@ -42,6 +42,7 @@ backend/src
   empresas/    empresas do escopo; filiais (só o dono)
   usuarios/    usuários operacionais do grupo (só o dono)
   materias/    matérias-primas da empresa ativa; a filial enxerga também as da matriz (só a dona altera a sua)
+  estoque/     entradas de compra por empresa (quantidade na unidade escolhida, compra, vencimento), com resumo por matéria-prima
   painel/      resumo da tela inicial por visão
   auditoria/   trilha de auditoria (global)
   shared/      funções puras de cálculo (com testes), ids, DTOs comuns, filtro de erros
@@ -49,7 +50,7 @@ backend/src
 frontend/src
   App.jsx      rota pública (entrar) e a área logada
   Shell.jsx    menu por visão, seletor de empresa, cabeçalho
-  pages/       Dashboard, Matérias-primas, Filiais, Usuários, admin/Empresas, admin/Usuários, Login
+  pages/       Dashboard, Matérias-primas, Estoque, Filiais, Usuários, admin/Empresas, admin/Usuários, Login
 mysql/init     schema inicial (só roda em volume novo)
 mysql/migrations  scripts idempotentes, aplicados em produção antes do deploy
 ```

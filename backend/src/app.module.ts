@@ -7,8 +7,9 @@ import { EmpresasModule } from './empresas/empresas.module';
 import { UsuariosModule } from './usuarios/usuarios.module';
 import { MateriasModule } from './materias/materias.module';
 import { PainelModule } from './painel/painel.module';
+import { EstoqueModule } from './estoque/estoque.module';
 
 @Module({
-  imports: [DatabaseModule, AuditoriaModule, AuthModule, AdminModule, EmpresasModule, UsuariosModule, MateriasModule, PainelModule],
+  imports: [DatabaseModule, AuditoriaModule, AuthModule, AdminModule, EmpresasModule, UsuariosModule, MateriasModule, PainelModule, EstoqueModule],
 })
 export class AppModule {}
