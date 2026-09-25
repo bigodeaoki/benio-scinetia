@@ -1,0 +1,56 @@
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: scientia-saas-mysql
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    environment:
+      MYSQL_ROOT_PASSWORD: rootscientia
+      MYSQL_DATABASE: scientia
+      MYSQL_USER: scientia
+      MYSQL_PASSWORD: scientia123
+    ports:
+      - "3308:3306"
+    volumes:
+      - scientia_saas_mysql:/var/lib/mysql
+      - ./mysql/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uscientia", "-pscientia123"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  backend:
+    build: ./backend
+    container_name: scientia-saas-backend
+    environment:
+      NODE_ENV: development
+      PORT: 4000
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USER: scientia
+      DB_PASSWORD: scientia123
+      DB_NAME: scientia
+      JWT_SECRET: segredo-de-desenvolvimento-troque-em-producao
+      TRIAL_DIAS: 14
+    ports:
+      - "4100:4000"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    container_name: scientia-saas-frontend
+    environment:
+      PORT: 80
+      BACKEND_URL: http://backend:4000
+    ports:
+      - "8081:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  scientia_saas_mysql:

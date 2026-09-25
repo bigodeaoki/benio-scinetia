@@ -1,0 +1,6 @@
+# Arquivos consumidos por container Linux precisam de LF, mesmo com core.autocrlf=true
+# (o shebang do 30-resolver.sh vira "#!/bin/sh\r" com CRLF e o nginx nao executa)
+*.sh text eol=lf
+*.template text eol=lf
+Dockerfile text eol=lf
+docker-compose.yml text eol=lf

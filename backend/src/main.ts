@@ -1,0 +1,18 @@
+import 'reflect-metadata';
+import { ValidationPipe } from '@nestjs/common';
+import { NestFactory } from '@nestjs/core';
+import { AppModule } from './app.module';
+import { env } from './config/env';
+import { ErrosFilter } from './shared/erros.filter';
+
+// Scientia SaaS — API (deploy via Railway)
+async function bootstrap() {
+  const app = await NestFactory.create(AppModule, { logger: ['log', 'warn', 'error'] });
+  app.setGlobalPrefix('api');
+  // Campo fora do DTO é recusado: em SaaS, entrada livre é porta para problema
+  app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
+  app.useGlobalFilters(new ErrosFilter());
+  await app.listen(env.PORT, '0.0.0.0');
+  console.log(`[scientia-saas] API ouvindo em http://0.0.0.0:${env.PORT}/api (${env.producao ? 'produção' : 'desenvolvimento'})`);
+}
+bootstrap();
