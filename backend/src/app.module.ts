@@ -5,8 +5,9 @@ import { AuthModule } from './auth/auth.module';
 import { ContasModule } from './contas/contas.module';
 import { EmpresasModule } from './empresas/empresas.module';
 import { UsuariosModule } from './usuarios/usuarios.module';
+import { MateriasModule } from './materias/materias.module';
 
 @Module({
-  imports: [DatabaseModule, AuditoriaModule, AuthModule, ContasModule, EmpresasModule, UsuariosModule],
+  imports: [DatabaseModule, AuditoriaModule, AuthModule, ContasModule, EmpresasModule, UsuariosModule, MateriasModule],
 })
 export class AppModule {}

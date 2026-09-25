@@ -7,7 +7,7 @@ export interface EventoAuditoria {
   usuario_id?: number | null;
   acao: string;            // ex.: 'empresa.criada', 'usuario.inativado'
   entidade?: string;       // tabela ou domínio
-  entidade_id?: number | null;
+  entidade_id?: number | string | null;   // inteiro (conta, empresa, usuário) ou UUID (entidades de domínio)
   detalhes?: any;          // vira JSON
 }
 

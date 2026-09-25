@@ -10,6 +10,7 @@ Custos de produção industrial como serviço: cada cliente é uma **conta** com
 - **Auditoria desde o dia zero:** toda escrita relevante registra quem fez o quê, em qual empresa.
 - **Validação por DTO** em toda entrada; campo desconhecido é recusado.
 - **Segredos obrigatórios em produção:** o backend não sobe sem `JWT_SECRET`.
+- **Entidades de domínio:** id UUID gerado na aplicação, `criado_em` e `atualizado_em` mantidos pelo banco, escopo por empresa, sem exclusão física. Primeira: matérias-primas.
 - **Motor de custos com testes:** as regras numéricas ficam em `backend/src/shared/calculos.ts`, puras e cobertas por Jest.
 
 ## Rodar local
@@ -34,13 +35,14 @@ backend/src
   contas/      dados da conta, totais e auditoria recente
   empresas/    empresas da conta
   usuarios/    usuários da conta (nunca excluídos, só inativados)
+  materias/    matérias-primas da empresa ativa (molde das entidades: UUID, criado_em, atualizado_em)
   auditoria/   trilha de auditoria (global)
   shared/      funções puras de cálculo (com testes) e filtro de erros
   db/          pool MySQL
 frontend/src
   App.jsx      rotas públicas (entrar, cadastro) e a área logada
   Shell.jsx    menu lateral, seletor de empresa, cabeçalho
-  pages/       Dashboard, Empresas, Usuários, Conta, Login, Cadastro
+  pages/       Dashboard, Matérias-primas, Empresas, Usuários, Conta, Login, Cadastro
 mysql/init     schema inicial (só roda em volume novo)
 mysql/migrations  scripts idempotentes, aplicados em produção antes do deploy
 ```

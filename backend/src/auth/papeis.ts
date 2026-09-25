@@ -8,4 +8,5 @@ export const PERM = {
   conta: ['admin'],      // dados da conta (nome, plano)
   empresas: ['admin'],   // empresas da conta
   usuarios: ['admin'],   // usuários da conta
+  materias: ['admin', 'compras', 'producao', 'administrativo'], // cadastro de matérias-primas
 };

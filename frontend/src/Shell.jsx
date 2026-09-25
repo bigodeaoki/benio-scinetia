@@ -1,5 +1,5 @@
 import React from 'react';
-import { Building2, LayoutDashboard, LogOut, Settings, Users } from 'lucide-react';
+import { Building2, LayoutDashboard, LogOut, Package, Settings, Users } from 'lucide-react';
 import { NavLink, Route, Routes, useLocation } from 'react-router-dom';
 import { SessaoContext } from './App.jsx';
 import { limparSessao } from './api.js';
@@ -9,9 +9,12 @@ import Dashboard from './pages/Dashboard.jsx';
 import Empresas from './pages/Empresas.jsx';
 import Usuarios from './pages/Usuarios.jsx';
 import Conta from './pages/Conta.jsx';
+import Materias from './pages/Materias.jsx';
 
 const MENU = [
   { caminho: '/', titulo: 'Dashboard', Icone: LayoutDashboard, fim: true },
+  { grupo: 'Cadastros' },
+  { caminho: '/materias', titulo: 'Matérias-primas', Icone: Package },
   { grupo: 'Conta' },
   { caminho: '/empresas', titulo: 'Empresas', Icone: Building2 },
   { caminho: '/usuarios', titulo: 'Usuários', Icone: Users, apenasAdmin: true },
@@ -65,6 +68,7 @@ export default function Shell() {
         <main className="conteudo">
           <Routes>
             <Route index element={<Dashboard />} />
+            <Route path="materias" element={<Materias />} />
             <Route path="empresas" element={<Empresas />} />
             <Route path="usuarios" element={ehAdmin ? <Usuarios /> : <Dashboard />} />
             <Route path="conta" element={<Conta />} />

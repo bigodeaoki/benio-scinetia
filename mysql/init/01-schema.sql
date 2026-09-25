@@ -60,11 +60,27 @@ CREATE TABLE auditoria (
   usuario_id INT NULL,
   acao VARCHAR(60) NOT NULL,                           -- ex.: empresa.criada, usuario.inativado
   entidade VARCHAR(60) NULL,
-  entidade_id INT NULL,
+  entidade_id VARCHAR(36) NULL,                        -- id numérico ou UUID da entidade
   detalhes JSON NULL,
   criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   KEY idx_auditoria_conta (conta_id, id),
   FOREIGN KEY (conta_id) REFERENCES contas(id) ON DELETE CASCADE,
   FOREIGN KEY (empresa_id) REFERENCES empresas(id) ON DELETE SET NULL,
   FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE SET NULL
+) ENGINE=InnoDB;
+
+-- Matérias-primas: insumos de cada empresa. Convenção de entidade do SaaS:
+-- id UUID (gerado na aplicação), criado_em e atualizado_em mantidos pelo banco,
+-- escopo por empresa (que pertence à conta) e sem exclusão física (ativo).
+CREATE TABLE materias_primas (
+  id CHAR(36) NOT NULL PRIMARY KEY,
+  empresa_id INT NOT NULL,
+  nome VARCHAR(150) NOT NULL,
+  unidade VARCHAR(20) NOT NULL DEFAULT 'un',            -- kg, L, un...
+  descricao VARCHAR(255) NULL,
+  ativo TINYINT(1) NOT NULL DEFAULT 1,
+  criado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  atualizado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_materia_nome (empresa_id, nome),
+  FOREIGN KEY (empresa_id) REFERENCES empresas(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
