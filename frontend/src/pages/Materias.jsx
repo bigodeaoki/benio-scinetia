@@ -13,6 +13,7 @@ export default function Materias() {
   const { dados, erro, carregando, recarregar } = useDados(() => api('/materias'), [s.empresaId]);
   const [editando, setEditando] = React.useState(null);
   const empresa = s.empresas.find((e) => e.id === s.empresaId);
+  const ehFilial = !!empresa?.filial;
 
   async function alterarAtivo(m, ativo) {
     const ok = await confirmar({
@@ -38,23 +39,30 @@ export default function Materias() {
           <h3><Package size={15} className="icone-cartao" />Matérias-primas de {empresa?.nome_fantasia || empresa?.razao_social}</h3>
           {podeEditar && <button className="botao" onClick={() => setEditando({ novo: true })}>+ Nova matéria-prima</button>}
         </div>
+        {ehFilial && (
+          <div className="alerta alerta-info">
+            Esta filial enxerga as matérias-primas da <strong>matriz</strong> ({s.escopo.matriz?.nome}) além das suas. As da matriz só a matriz altera.
+          </div>
+        )}
         <Erro msg={erro} />
         {carregando ? <Carregando /> : !dados?.length ? <Vazio msg="Nenhuma matéria-prima cadastrada nesta empresa" /> : (
           <div className="tabela-envolucro">
             <table className="tabela">
               <thead>
-                <tr><th>Nome</th><th>Unidade</th><th>Descrição</th><th>Status</th><th>Criada em</th><th>Atualizada em</th>{podeEditar && <th className="acoes">Ações</th>}</tr>
+                <tr><th>Nome</th>{ehFilial && <th>Origem</th>}<th>Unidade</th><th>Descrição</th><th>Status</th><th>Criada em</th><th>Atualizada em</th>{podeEditar && <th className="acoes">Ações</th>}</tr>
               </thead>
               <tbody>
                 {dados.map((m) => (
                   <tr key={m.id} style={m.ativo ? undefined : { opacity: 0.55 }}>
                     <td className="negrito">{m.nome}</td>
+                    {ehFilial && <td><Badge cor={m.origem === 'matriz' ? 'azul' : 'cinza'}>{m.origem === 'matriz' ? 'Matriz' : 'Própria'}</Badge></td>}
                     <td>{m.unidade}</td>
                     <td className="texto-suave">{m.descricao || '—'}</td>
                     <td><Badge cor={m.ativo ? 'verde' : 'cinza'}>{m.ativo ? 'Ativa' : 'Inativa'}</Badge></td>
                     <td>{fmtDataHora(m.criado_em)}</td>
                     <td>{fmtDataHora(m.atualizado_em)}</td>
-                    {podeEditar && (
+                    {podeEditar && m.origem === 'matriz' && <td className="acoes"><span className="texto-suave">só a matriz altera</span></td>}
+                    {podeEditar && m.origem !== 'matriz' && (
                       <td className="acoes">
                         <button className="botao botao-secundario botao-mini" onClick={() => setEditando(m)}>Editar</button>
                         {m.ativo

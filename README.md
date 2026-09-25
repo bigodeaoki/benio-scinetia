@@ -12,7 +12,7 @@ Não existe filial sem matriz: toda filial aponta para a sua matriz (`empresas.e
 
 ## Convenções
 
-- **Entidades:** id UUID v4 gerado na aplicação, `criado_em` e `atualizado_em` mantidos pelo banco, sem exclusão física (`ativo`).
+- **Entidades:** id UUID v4 gerado na aplicação, `criado_em` e `atualizado_em` mantidos pelo banco, sem exclusão física (`ativo`). Cadastros de referência (ex.: matérias-primas) são de cada empresa e carregam o vínculo com a matriz (`matriz_id`): a filial vê os seus e os da matriz, e não repete nome que a matriz já tem.
 - **Escopo em toda requisição:** o guard monta `escopo` (papel, matriz do grupo, empresas permitidas) e valida o header `X-Empresa-Id`. Serviços sempre filtram por esse escopo.
 - **Validação por DTO** em toda entrada; campo desconhecido é recusado.
 - **Auditoria** em toda escrita: quem fez o quê, em qual empresa de qual grupo.
@@ -41,7 +41,7 @@ backend/src
   admin/       visão global: empresas (matriz + dono) e usuários de qualquer empresa
   empresas/    empresas do escopo; filiais (só o dono)
   usuarios/    usuários operacionais do grupo (só o dono)
-  materias/    matérias-primas da empresa ativa
+  materias/    matérias-primas da empresa ativa; a filial enxerga também as da matriz (só a dona altera a sua)
   painel/      resumo da tela inicial por visão
   auditoria/   trilha de auditoria (global)
   shared/      funções puras de cálculo (com testes), ids, DTOs comuns, filtro de erros

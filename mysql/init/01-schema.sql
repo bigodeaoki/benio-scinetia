@@ -68,10 +68,13 @@ CREATE TABLE auditoria (
   FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE SET NULL
 ) ENGINE=InnoDB;
 
--- Matérias-primas: insumos de cada empresa (matriz ou filial)
+-- Matérias-primas: insumos de cada empresa. Cada uma é de uma empresa (matriz
+-- ou filial) e carrega o vínculo com a matriz do grupo; a filial enxerga as
+-- suas e as da matriz, e só a empresa dona altera a sua.
 CREATE TABLE materias_primas (
   id CHAR(36) NOT NULL PRIMARY KEY,
   empresa_id CHAR(36) NOT NULL,
+  matriz_id CHAR(36) NOT NULL,                          -- matriz do grupo (vínculo para as filiais enxergarem)
   nome VARCHAR(150) NOT NULL,
   unidade VARCHAR(20) NOT NULL DEFAULT 'un',             -- kg, L, un...
   descricao VARCHAR(255) NULL,
@@ -79,5 +82,7 @@ CREATE TABLE materias_primas (
   criado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   atualizado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY uk_materia_nome (empresa_id, nome),
-  FOREIGN KEY (empresa_id) REFERENCES empresas(id) ON DELETE CASCADE
+  KEY idx_materias_matriz (matriz_id),
+  FOREIGN KEY (empresa_id) REFERENCES empresas(id) ON DELETE CASCADE,
+  FOREIGN KEY (matriz_id) REFERENCES empresas(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
