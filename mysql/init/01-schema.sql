@@ -39,7 +39,7 @@ CREATE TABLE usuarios (
   nome VARCHAR(120) NOT NULL,
   email VARCHAR(160) NOT NULL UNIQUE,
   senha_hash VARCHAR(100) NOT NULL,
-  papel ENUM('admin','owner','producao','qualidade','compras','vendas','administrativo','financeiro','operador') NOT NULL DEFAULT 'operador',
+  papel ENUM('admin','owner','farmacia','producao','qualidade','compras','vendas','administrativo','financeiro','operador') NOT NULL DEFAULT 'operador',
   ativo TINYINT(1) NOT NULL DEFAULT 1,
   ultimo_login_em DATETIME NULL,
   criado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -105,4 +105,34 @@ CREATE TABLE estoque (
   KEY idx_estoque_empresa (empresa_id, materia_prima_id, data_compra),
   FOREIGN KEY (empresa_id) REFERENCES empresas(id) ON DELETE CASCADE,
   FOREIGN KEY (materia_prima_id) REFERENCES materias_primas(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+-- Formulações: fórmulas da empresa, mantidas pelo papel farmácia (e pelo dono).
+-- Uma formulação é uma lista ordenada de matérias-primas com quantidade e
+-- unidade. Como as matérias-primas, carrega o vínculo com a matriz: a filial
+-- enxerga as fórmulas da matriz e só a empresa dona altera a sua.
+CREATE TABLE formulacoes (
+  id CHAR(36) NOT NULL PRIMARY KEY,
+  empresa_id CHAR(36) NOT NULL,
+  matriz_id CHAR(36) NOT NULL,
+  nome VARCHAR(150) NOT NULL,
+  descricao VARCHAR(255) NULL,
+  ativo TINYINT(1) NOT NULL DEFAULT 1,
+  criado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  atualizado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_formulacao_nome (empresa_id, nome),
+  KEY idx_formulacoes_matriz (matriz_id),
+  FOREIGN KEY (empresa_id) REFERENCES empresas(id) ON DELETE CASCADE,
+  FOREIGN KEY (matriz_id) REFERENCES empresas(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE formulacao_itens (
+  formulacao_id CHAR(36) NOT NULL,
+  materia_prima_id CHAR(36) NOT NULL,
+  ordem INT NOT NULL DEFAULT 1,                          -- sequência de adição
+  quantidade DECIMAL(14,4) NOT NULL,
+  unidade VARCHAR(20) NOT NULL,
+  PRIMARY KEY (formulacao_id, materia_prima_id),
+  FOREIGN KEY (formulacao_id) REFERENCES formulacoes(id) ON DELETE CASCADE,
+  FOREIGN KEY (materia_prima_id) REFERENCES materias_primas(id)
 ) ENGINE=InnoDB;

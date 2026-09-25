@@ -8,8 +8,9 @@ import { UsuariosModule } from './usuarios/usuarios.module';
 import { MateriasModule } from './materias/materias.module';
 import { PainelModule } from './painel/painel.module';
 import { EstoqueModule } from './estoque/estoque.module';
+import { FormulacoesModule } from './formulacoes/formulacoes.module';
 
 @Module({
-  imports: [DatabaseModule, AuditoriaModule, AuthModule, AdminModule, EmpresasModule, UsuariosModule, MateriasModule, PainelModule, EstoqueModule],
+  imports: [DatabaseModule, AuditoriaModule, AuthModule, AdminModule, EmpresasModule, UsuariosModule, MateriasModule, PainelModule, EstoqueModule, FormulacoesModule],
 })
 export class AppModule {}
