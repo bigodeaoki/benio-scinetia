@@ -1,17 +1,11 @@
 import { Body, Controller, Get, HttpCode, Post } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { Public, UsuarioAtual } from './decorators';
-import { CadastroDto, LoginDto } from './dto';
+import { LoginDto } from './dto';
 
 @Controller('auth')
 export class AuthController {
   constructor(private service: AuthService) {}
-
-  @Public()
-  @Post('cadastro')
-  cadastro(@Body() dto: CadastroDto) {
-    return this.service.cadastro(dto);
-  }
 
   @Public()
   @Post('login')

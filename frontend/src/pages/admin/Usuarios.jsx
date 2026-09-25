@@ -1,21 +1,22 @@
 import React from 'react';
 import { Users } from 'lucide-react';
-import { SessaoContext } from '../App.jsx';
-import { api } from '../api.js';
-import { PAPEIS_OPERACIONAIS, PAPEL_ROTULOS } from '../dados.js';
-import { Badge, Campo, Carregando, Erro, Modal, Vazio, confirmar, fmtDataHora, toast, useDados } from '../ui.jsx';
+import { SessaoContext } from '../../App.jsx';
+import { api } from '../../api.js';
+import { PAPEIS, PAPEL_ROTULOS } from '../../dados.js';
+import { Badge, Campo, Carregando, Erro, Modal, Vazio, confirmar, fmtDataHora, toast, useDados } from '../../ui.jsx';
 
-// Visão do dono: usuários operacionais do grupo, em qualquer empresa dele
-export default function Usuarios() {
+// Visão do admin: todos os usuários, de qualquer empresa, incluindo donos e admins
+export default function AdminUsuarios() {
   const s = React.useContext(SessaoContext);
-  const { dados, erro, carregando, recarregar } = useDados(() => api('/usuarios'));
+  const { dados, erro, carregando, recarregar } = useDados(() => api('/admin/usuarios'));
+  const { dados: empresas } = useDados(() => api('/empresas'));
   const [editando, setEditando] = React.useState(null);
 
   async function alterarAtivo(u, ativo) {
     const ok = await confirmar({ titulo: ativo ? 'Reativar usuário' : 'Inativar usuário', mensagem: ativo ? `Reativar ${u.nome}?` : `Inativar ${u.nome}? A pessoa perde o acesso, mas o histórico fica.`, confirmarTexto: ativo ? 'Reativar' : 'Inativar', perigo: !ativo });
     if (!ok) return;
     try {
-      await api(`/usuarios/${u.id}/ativo`, { method: 'PUT', body: { ativo } });
+      await api(`/admin/usuarios/${u.id}/ativo`, { method: 'PUT', body: { ativo } });
       recarregar();
       toast.sucesso(ativo ? 'Usuário reativado' : 'Usuário inativado');
     } catch (e) {
@@ -23,19 +24,17 @@ export default function Usuarios() {
     }
   }
 
+  const empresaDe = (u) => (u.papel === 'admin' ? '—' : u.empresa_matriz ? `${u.empresa_nome} (matriz)` : `${u.empresa_nome} · filial de ${u.matriz_nome}`);
+
   return (
     <>
       <div className="cartao">
         <div className="cartao-cabecalho">
-          <h3><Users size={15} className="icone-cartao" />Usuários de {s.escopo.matriz?.nome}</h3>
+          <h3><Users size={15} className="icone-cartao" />Usuários de todas as empresas</h3>
           <button className="botao" onClick={() => setEditando({ novo: true })}>+ Novo usuário</button>
         </div>
-        <div className="alerta alerta-info">
-          Cada usuário pertence a uma empresa do grupo (matriz ou filial) e só enxerga ela. O <strong>papel</strong> define o que pode alterar.
-          Donos e admins são cadastrados pelo admin do sistema. Usuários não são excluídos, apenas inativados.
-        </div>
         <Erro msg={erro} />
-        {carregando ? <Carregando /> : !dados?.length ? <Vazio msg="Nenhum usuário operacional ainda" /> : (
+        {carregando ? <Carregando /> : !dados?.length ? <Vazio /> : (
           <div className="tabela-envolucro">
             <table className="tabela">
               <thead><tr><th>Nome</th><th>E-mail</th><th>Papel</th><th>Empresa</th><th>Status</th><th>Último acesso</th><th className="acoes">Ações</th></tr></thead>
@@ -44,19 +43,15 @@ export default function Usuarios() {
                   <tr key={u.id} style={u.ativo ? undefined : { opacity: 0.55 }}>
                     <td className="negrito">{u.nome}</td>
                     <td>{u.email}</td>
-                    <td><Badge cor={u.papel === 'owner' ? 'amarelo' : 'azul'}>{PAPEL_ROTULOS[u.papel] || u.papel}</Badge></td>
-                    <td>{u.empresa_matriz ? `${u.empresa_nome} (matriz)` : u.empresa_nome}</td>
+                    <td><Badge cor={u.papel === 'admin' ? 'roxo' : u.papel === 'owner' ? 'amarelo' : 'azul'}>{PAPEL_ROTULOS[u.papel] || u.papel}</Badge></td>
+                    <td>{empresaDe(u)}</td>
                     <td><Badge cor={u.ativo ? 'verde' : 'cinza'}>{u.ativo ? 'Ativo' : 'Inativo'}</Badge></td>
                     <td>{fmtDataHora(u.ultimo_login_em)}</td>
                     <td className="acoes">
-                      {u.papel !== 'owner' && (
-                        <>
-                          <button className="botao botao-secundario botao-mini" onClick={() => setEditando(u)}>Editar</button>
-                          {u.ativo
-                            ? <button className="botao botao-perigo botao-mini" onClick={() => alterarAtivo(u, false)}>Inativar</button>
-                            : <button className="botao botao-secundario botao-mini" onClick={() => alterarAtivo(u, true)}>Reativar</button>}
-                        </>
-                      )}
+                      <button className="botao botao-secundario botao-mini" onClick={() => setEditando(u)}>Editar</button>
+                      {u.id !== s.usuario.id && (u.ativo
+                        ? <button className="botao botao-perigo botao-mini" onClick={() => alterarAtivo(u, false)}>Inativar</button>
+                        : <button className="botao botao-secundario botao-mini" onClick={() => alterarAtivo(u, true)}>Reativar</button>)}
                     </td>
                   </tr>
                 ))}
@@ -66,7 +61,7 @@ export default function Usuarios() {
         )}
       </div>
       {editando && (
-        <FormUsuario usuario={editando.novo ? null : editando} empresas={s.empresas} aoFechar={() => setEditando(null)}
+        <FormUsuario usuario={editando.novo ? null : editando} empresas={empresas || []} aoFechar={() => setEditando(null)}
           aoSalvar={() => { setEditando(null); recarregar(); toast.sucesso('Usuário salvo'); }} />
       )}
     </>
@@ -75,18 +70,20 @@ export default function Usuarios() {
 
 function FormUsuario({ usuario, empresas, aoFechar, aoSalvar }) {
   const [f, setF] = React.useState(usuario
-    ? { nome: usuario.nome, email: usuario.email, senha: '', papel: usuario.papel, empresa_id: usuario.empresa_id }
-    : { nome: '', email: '', senha: '', papel: 'operador', empresa_id: empresas.find((e) => e.matriz)?.id || '' });
+    ? { nome: usuario.nome, email: usuario.email, senha: '', papel: usuario.papel, empresa_id: usuario.empresa_id || '' }
+    : { nome: '', email: '', senha: '', papel: 'owner', empresa_id: '' });
   const [erro, setErro] = React.useState(null);
   const mudar = (campo, valor) => setF((s) => ({ ...s, [campo]: valor }));
-  const info = PAPEIS_OPERACIONAIS.find((p) => p.valor === f.papel);
+  const info = PAPEIS.find((p) => p.valor === f.papel);
+  // dono só na matriz; os demais em qualquer empresa; admin em nenhuma
+  const opcoes = f.papel === 'owner' ? empresas.filter((e) => e.matriz) : empresas;
 
   async function salvar() {
     setErro(null);
-    const corpo = { nome: f.nome, email: f.email, papel: f.papel, empresa_id: f.empresa_id, senha: f.senha || undefined };
+    const corpo = { nome: f.nome, email: f.email, papel: f.papel, senha: f.senha || undefined, empresa_id: f.papel === 'admin' ? undefined : f.empresa_id || undefined };
     try {
-      if (usuario) await api(`/usuarios/${usuario.id}`, { method: 'PUT', body: corpo });
-      else await api('/usuarios', { method: 'POST', body: corpo });
+      if (usuario) await api(`/admin/usuarios/${usuario.id}`, { method: 'PUT', body: corpo });
+      else await api('/admin/usuarios', { method: 'POST', body: corpo });
       aoSalvar();
     } catch (e) {
       setErro(e.message);
@@ -107,14 +104,19 @@ function FormUsuario({ usuario, empresas, aoFechar, aoSalvar }) {
           <input type="password" value={f.senha} onChange={(e) => mudar('senha', e.target.value)} autoComplete="new-password" />
         </Campo>
         <Campo rotulo="Papel *">
-          <select value={f.papel} onChange={(e) => mudar('papel', e.target.value)}>{PAPEIS_OPERACIONAIS.map((p) => <option key={p.valor} value={p.valor}>{p.rotulo}</option>)}</select>
-        </Campo>
-        <Campo rotulo="Empresa *" dica="matriz ou filial do grupo">
-          <select value={f.empresa_id} onChange={(e) => mudar('empresa_id', e.target.value)}>
-            {empresas.map((e) => <option key={e.id} value={e.id}>{e.matriz ? `${e.nome} (matriz)` : e.nome}</option>)}
-          </select>
+          <select value={f.papel} onChange={(e) => mudar('papel', e.target.value)}>{PAPEIS.map((p) => <option key={p.valor} value={p.valor}>{p.rotulo}</option>)}</select>
         </Campo>
       </div>
+      {f.papel !== 'admin' && (
+        <div className="linha-campos">
+          <Campo rotulo="Empresa *" dica={f.papel === 'owner' ? 'dono é sempre da matriz' : 'matriz ou filial'}>
+            <select value={f.empresa_id} onChange={(e) => mudar('empresa_id', e.target.value)}>
+              <option value="">— escolha —</option>
+              {opcoes.map((e) => <option key={e.id} value={e.id}>{e.matriz ? `${e.nome} (matriz)` : `${e.nome} (filial)`}</option>)}
+            </select>
+          </Campo>
+        </div>
+      )}
       {info && <div className="alerta alerta-info">{info.rotulo}: {info.descricao}</div>}
     </Modal>
   );

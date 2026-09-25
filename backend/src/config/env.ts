@@ -19,5 +19,8 @@ export const env = {
   DB_NAME: process.env.DB_NAME || 'scientia',
   JWT_SECRET: obrigatoria('JWT_SECRET', 'segredo-de-desenvolvimento'),
   JWT_EXPIRA: process.env.JWT_EXPIRA || '12h',
-  TRIAL_DIAS: Number(process.env.TRIAL_DIAS || 14),
+  // Primeiro admin global: criado na subida se não existir nenhum. Em produção,
+  // sem estes valores, nada é criado e o log avisa.
+  ADMIN_EMAIL: process.env.ADMIN_EMAIL || (producao ? '' : 'admin@scientia.com'),
+  ADMIN_SENHA: process.env.ADMIN_SENHA || (producao ? '' : 'admin123'),
 };

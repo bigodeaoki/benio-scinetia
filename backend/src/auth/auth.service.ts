@@ -1,58 +1,14 @@
-import { BadRequestException, Inject, Injectable, UnauthorizedException } from '@nestjs/common';
+import { Inject, Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
-import { AuditoriaService } from '../auditoria/auditoria.service';
-import { env } from '../config/env';
 import { POOL, Pool } from '../db/database.module';
-import { CadastroDto, LoginDto } from './dto';
+import { LoginDto } from './dto';
 
+// Não há cadastro público: o admin cadastra a matriz e o dono; o dono cadastra
+// filiais e usuários. Aqui só login e sessão.
 @Injectable()
 export class AuthService {
-  constructor(
-    @Inject(POOL) private pool: Pool,
-    private jwt: JwtService,
-    private auditoria: AuditoriaService,
-  ) {}
-
-  // Cadastro self-service: conta, primeira empresa e admin numa transação.
-  // O e-mail é único no sistema: um usuário pertence a uma conta só.
-  async cadastro(dto: CadastroDto) {
-    const email = dto.email.trim().toLowerCase();
-    const [existe]: any = await this.pool.query('SELECT id FROM usuarios WHERE email=?', [email]);
-    if (existe.length) throw new BadRequestException('Já existe uma conta com este e-mail — entre ou recupere a senha');
-
-    const conn = await this.pool.getConnection();
-    try {
-      await conn.beginTransaction();
-      const slug = await this.slugLivre(conn, dto.conta_nome);
-      const [rc]: any = await conn.query(
-        `INSERT INTO contas (nome, slug, plano, status, trial_ate)
-         VALUES (?,?,?,?, DATE_ADD(CURDATE(), INTERVAL ? DAY))`,
-        [dto.conta_nome.trim(), slug, 'trial', 'ativa', env.TRIAL_DIAS],
-      );
-      const contaId = rc.insertId;
-      const [re]: any = await conn.query(
-        'INSERT INTO empresas (conta_id, razao_social, nome_fantasia, uf, regime) VALUES (?,?,?,?,?)',
-        [contaId, dto.razao_social.trim(), dto.nome_fantasia?.trim() || null, dto.uf.toUpperCase(), dto.regime],
-      );
-      const hash = await bcrypt.hash(dto.senha, 10);
-      const [ru]: any = await conn.query(
-        'INSERT INTO usuarios (conta_id, nome, email, senha_hash, papel) VALUES (?,?,?,?,?)',
-        [contaId, dto.nome.trim(), email, hash, 'admin'],
-      );
-      await this.auditoria.registrar(conn, {
-        conta_id: contaId, empresa_id: re.insertId, usuario_id: ru.insertId,
-        acao: 'conta.criada', entidade: 'contas', entidade_id: contaId, detalhes: { plano: 'trial', slug },
-      });
-      await conn.commit();
-      return this.sessao(ru.insertId);
-    } catch (e) {
-      await conn.rollback();
-      throw e;
-    } finally {
-      conn.release();
-    }
-  }
+  constructor(@Inject(POOL) private pool: Pool, private jwt: JwtService) {}
 
   async login(dto: LoginDto) {
     const email = dto.email.trim().toLowerCase();
@@ -62,48 +18,43 @@ export class AuthService {
       throw new UnauthorizedException('E-mail ou senha inválidos');
     }
     await this.pool.query('UPDATE usuarios SET ultimo_login_em = NOW() WHERE id=?', [u.id]);
-    return this.sessao(u.id);
+    const dados = await this.me(u.id);
+    const token = await this.jwt.signAsync({ sub: u.id, papel: dados.usuario.papel });
+    return { token, ...dados };
   }
 
-  // Dados da sessão: usuário, conta e as empresas da conta
-  async me(usuarioId: number) {
+  // Sessão: usuário e escopo (matriz do grupo e empresas que ele pode usar).
+  // Dono recebe matriz + filiais; usuário comum, só a própria empresa; admin,
+  // nenhuma (opera pela visão global).
+  async me(usuarioId: string) {
     const [rows]: any = await this.pool.query(
-      `SELECT u.id, u.nome, u.email, u.papel, u.conta_id,
-              c.nome AS conta_nome, c.slug, c.plano, c.status, c.trial_ate
-         FROM usuarios u JOIN contas c ON c.id = u.conta_id
+      `SELECT u.id, u.nome, u.email, u.papel, u.empresa_id, e.matriz AS eh_matriz, e.empresa_id AS matriz_da_filial
+         FROM usuarios u LEFT JOIN empresas e ON e.id = u.empresa_id
         WHERE u.id=?`,
       [usuarioId],
     );
     const u = rows[0];
     if (!u) throw new UnauthorizedException('Usuário não encontrado');
-    const [empresas]: any = await this.pool.query(
-      'SELECT id, razao_social, nome_fantasia, uf, regime, aliquota_simples FROM empresas WHERE conta_id=? ORDER BY id',
-      [u.conta_id],
-    );
-    return {
-      usuario: { id: u.id, nome: u.nome, email: u.email, papel: u.papel },
-      conta: { id: u.conta_id, nome: u.conta_nome, slug: u.slug, plano: u.plano, status: u.status, trial_ate: u.trial_ate },
-      empresas,
-    };
-  }
-
-  private async sessao(usuarioId: number) {
-    const dados = await this.me(usuarioId);
-    const token = await this.jwt.signAsync({ sub: dados.usuario.id, conta: dados.conta.id });
-    return { token, ...dados };
-  }
-
-  // "Indústria Scientia" vira "industria-scientia"; se já existir, ganha sufixo
-  private async slugLivre(conn: any, nome: string): Promise<string> {
-    const base = String(nome)
-      .normalize('NFD').replace(/[̀-ͯ]/g, '')
-      .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
-      .slice(0, 50) || 'conta';
-    for (let n = 0; n < 50; n++) {
-      const slug = n ? `${base}-${n + 1}` : base;
-      const [r]: any = await conn.query('SELECT id FROM contas WHERE slug=?', [slug]);
-      if (!r.length) return slug;
+    let empresas: any[] = [];
+    let matriz: any = null;
+    if (u.papel !== 'admin') {
+      const matrizId = u.eh_matriz ? u.empresa_id : u.matriz_da_filial;
+      const [grupo]: any = await this.pool.query(
+        'SELECT id, nome, cnpj, matriz, filial, empresa_id, ativo FROM empresas WHERE id=? OR empresa_id=? ORDER BY matriz DESC, nome',
+        [matrizId, matrizId],
+      );
+      const m = grupo.find((g: any) => g.id === matrizId);
+      matriz = m ? { id: m.id, nome: m.nome } : null;
+      empresas = u.papel === 'owner' ? grupo : grupo.filter((g: any) => g.id === u.empresa_id);
     }
-    return `${base}-${Date.now()}`;
+    return {
+      usuario: { id: u.id, nome: u.nome, email: u.email, papel: u.papel, empresa_id: u.empresa_id },
+      escopo: {
+        papel: u.papel,
+        matriz,
+        empresas,
+        empresa_padrao: u.papel === 'admin' ? null : u.papel === 'owner' ? matriz?.id || null : u.empresa_id,
+      },
+    };
   }
 }

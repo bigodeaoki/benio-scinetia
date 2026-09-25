@@ -1,14 +1,7 @@
 // Listas fixas usadas em formulários
-export const UFS = ['AC','AL','AM','AP','BA','CE','DF','ES','GO','MA','MG','MS','MT','PA','PB','PE','PI','PR','RJ','RN','RO','RR','RS','SC','SE','SP','TO'];
-
-export const REGIMES = [
-  { valor: 'simples', rotulo: 'Simples Nacional' },
-  { valor: 'presumido', rotulo: 'Lucro Presumido' },
-  { valor: 'real', rotulo: 'Lucro Real' },
-];
-
 export const PAPEIS = [
-  { valor: 'admin', rotulo: 'Admin', descricao: 'Acesso total à conta: empresas, usuários e configurações.' },
+  { valor: 'admin', rotulo: 'Admin do sistema', descricao: 'Operador do SaaS: cadastra empresas e donos e controla usuários de todas as empresas.' },
+  { valor: 'owner', rotulo: 'Dono', descricao: 'Dono da empresa: cadastra filiais e usuários do seu grupo e alterna entre matriz e filiais.' },
   { valor: 'producao', rotulo: 'Produção', descricao: 'Linhas, fórmulas, matérias-primas e ordens de produção.' },
   { valor: 'qualidade', rotulo: 'Qualidade', descricao: 'Fórmulas, especificações e controle de documentos.' },
   { valor: 'compras', rotulo: 'Compras', descricao: 'Matérias-primas, notas de fornecedor e entradas de estoque.' },
@@ -17,4 +10,5 @@ export const PAPEIS = [
   { valor: 'financeiro', rotulo: 'Financeiro', descricao: 'Consulta geral: custos, preços e dashboards.' },
   { valor: 'operador', rotulo: 'Operador', descricao: 'Apontamentos de produção e movimentos de estoque.' },
 ];
+export const PAPEIS_OPERACIONAIS = PAPEIS.filter((p) => p.valor !== 'admin' && p.valor !== 'owner');
 export const PAPEL_ROTULOS = Object.fromEntries(PAPEIS.map((p) => [p.valor, p.rotulo]));

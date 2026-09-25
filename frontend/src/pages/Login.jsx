@@ -1,5 +1,4 @@
 import React from 'react';
-import { Link } from 'react-router-dom';
 import { api } from '../api.js';
 import { Erro, LogoScientia } from '../ui.jsx';
 
@@ -42,9 +41,6 @@ export default function Login({ aoEntrar }) {
         <button className="botao" type="submit" disabled={ocupado} style={{ width: '100%', justifyContent: 'center', marginTop: 8 }}>
           {ocupado ? 'Entrando…' : 'Entrar'}
         </button>
-        <div className="login-demo">
-          Ainda não tem conta? <Link to="/cadastro">Criar conta grátis</Link>
-        </div>
       </form>
     </div>
   );

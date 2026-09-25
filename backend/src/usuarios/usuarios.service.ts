@@ -1,65 +1,69 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import * as bcrypt from 'bcryptjs';
 import { AuditoriaService } from '../auditoria/auditoria.service';
+import { EscopoSessao } from '../auth/decorators';
 import { POOL, Pool } from '../db/database.module';
+import { novoId } from '../shared/ids';
 import { UsuarioDto } from './usuarios.dto';
 
-// Usuários de uma conta. E-mail é único no sistema inteiro (um usuário
-// pertence a uma conta só). Usuário nunca é excluído: inativa-se, para a
-// auditoria continuar apontando para alguém.
+// Usuários do grupo, geridos pelo dono: papéis operacionais em qualquer
+// empresa do grupo (matriz ou filial). Donos e admins são do admin global.
+// Usuário nunca é excluído: inativa-se.
 @Injectable()
 export class UsuariosService {
   constructor(@Inject(POOL) private pool: Pool, private auditoria: AuditoriaService) {}
 
-  async listar(contaId: number) {
+  async listar(escopo: EscopoSessao) {
     const [rows]: any = await this.pool.query(
-      'SELECT id, nome, email, papel, ativo, ultimo_login_em, criado_em FROM usuarios WHERE conta_id=? ORDER BY nome',
-      [contaId],
+      `SELECT u.id, u.nome, u.email, u.papel, u.ativo, u.ultimo_login_em, u.criado_em, u.empresa_id, e.nome AS empresa_nome, e.matriz AS empresa_matriz
+         FROM usuarios u JOIN empresas e ON e.id = u.empresa_id
+        WHERE u.empresa_id IN (?) ORDER BY e.matriz DESC, e.nome, u.nome`,
+      [escopo.empresaIds],
     );
     return rows;
   }
 
-  async criar(contaId: number, usuarioAtualId: number, dto: UsuarioDto) {
+  async criar(escopo: EscopoSessao, usuarioAtualId: string, dto: UsuarioDto) {
     if (!dto.senha) throw new BadRequestException('Senha é obrigatória para um usuário novo');
-    const email = dto.email.trim().toLowerCase();
-    const hash = await bcrypt.hash(dto.senha, 10);
-    const [res]: any = await this.pool
-      .query('INSERT INTO usuarios (conta_id, nome, email, senha_hash, papel, ativo) VALUES (?,?,?,?,?,?)', [
-        contaId, dto.nome.trim(), email, hash, dto.papel, dto.ativo === false ? 0 : 1,
+    this.exigirEmpresaDoGrupo(escopo, dto.empresa_id);
+    const id = novoId();
+    await this.pool
+      .query('INSERT INTO usuarios (id, empresa_id, nome, email, senha_hash, papel) VALUES (?,?,?,?,?,?)', [
+        id, dto.empresa_id, dto.nome.trim(), dto.email.trim().toLowerCase(), await bcrypt.hash(dto.senha, 10), dto.papel,
       ])
       .catch((e: any) => this.traduzir(e));
-    await this.auditoria.registrar(null, { conta_id: contaId, usuario_id: usuarioAtualId, acao: 'usuario.criado', entidade: 'usuarios', entidade_id: res.insertId, detalhes: { email, papel: dto.papel } });
-    return { id: res.insertId };
+    await this.auditoria.registrar(null, { matriz_id: escopo.matrizId, empresa_id: dto.empresa_id, usuario_id: usuarioAtualId, acao: 'usuario.criado', entidade: 'usuarios', entidade_id: id, detalhes: { email: dto.email.trim().toLowerCase(), papel: dto.papel } });
+    return { id };
   }
 
-  async atualizar(contaId: number, usuarioAtualId: number, id: number, dto: UsuarioDto) {
-    const atual = await this.buscar(contaId, id);
-    if (id === usuarioAtualId && dto.papel !== 'admin' && atual.papel === 'admin') {
-      throw new BadRequestException('Você não pode tirar o próprio papel de admin');
-    }
-    const email = dto.email.trim().toLowerCase();
+  async atualizar(escopo: EscopoSessao, usuarioAtualId: string, id: string, dto: UsuarioDto) {
+    await this.buscarOperacional(escopo, id);
+    this.exigirEmpresaDoGrupo(escopo, dto.empresa_id);
     await this.pool
-      .query('UPDATE usuarios SET nome=?, email=?, papel=? WHERE id=? AND conta_id=?', [dto.nome.trim(), email, dto.papel, id, contaId])
+      .query('UPDATE usuarios SET nome=?, email=?, papel=?, empresa_id=? WHERE id=?', [dto.nome.trim(), dto.email.trim().toLowerCase(), dto.papel, dto.empresa_id, id])
       .catch((e: any) => this.traduzir(e));
-    if (dto.senha) {
-      const hash = await bcrypt.hash(dto.senha, 10);
-      await this.pool.query('UPDATE usuarios SET senha_hash=? WHERE id=?', [hash, id]);
-    }
-    await this.auditoria.registrar(null, { conta_id: contaId, usuario_id: usuarioAtualId, acao: 'usuario.alterado', entidade: 'usuarios', entidade_id: id, detalhes: { papel: dto.papel, senha_trocada: !!dto.senha } });
+    if (dto.senha) await this.pool.query('UPDATE usuarios SET senha_hash=? WHERE id=?', [await bcrypt.hash(dto.senha, 10), id]);
+    await this.auditoria.registrar(null, { matriz_id: escopo.matrizId, empresa_id: dto.empresa_id, usuario_id: usuarioAtualId, acao: 'usuario.alterado', entidade: 'usuarios', entidade_id: id, detalhes: { papel: dto.papel, senha_trocada: !!dto.senha } });
     return { ok: true };
   }
 
-  async alterarAtivo(contaId: number, usuarioAtualId: number, id: number, ativo: boolean) {
+  async alterarAtivo(escopo: EscopoSessao, usuarioAtualId: string, id: string, ativo: boolean) {
     if (id === usuarioAtualId && !ativo) throw new BadRequestException('Você não pode inativar o próprio usuário');
-    await this.buscar(contaId, id);
-    await this.pool.query('UPDATE usuarios SET ativo=? WHERE id=? AND conta_id=?', [ativo ? 1 : 0, id, contaId]);
-    await this.auditoria.registrar(null, { conta_id: contaId, usuario_id: usuarioAtualId, acao: ativo ? 'usuario.reativado' : 'usuario.inativado', entidade: 'usuarios', entidade_id: id });
+    const u = await this.buscarOperacional(escopo, id);
+    await this.pool.query('UPDATE usuarios SET ativo=? WHERE id=?', [ativo ? 1 : 0, id]);
+    await this.auditoria.registrar(null, { matriz_id: escopo.matrizId, empresa_id: u.empresa_id, usuario_id: usuarioAtualId, acao: ativo ? 'usuario.reativado' : 'usuario.inativado', entidade: 'usuarios', entidade_id: id, detalhes: { email: u.email } });
     return { ok: true, ativo };
   }
 
-  private async buscar(contaId: number, id: number) {
-    const [rows]: any = await this.pool.query('SELECT id, papel FROM usuarios WHERE id=? AND conta_id=?', [id, contaId]);
+  private exigirEmpresaDoGrupo(escopo: EscopoSessao, empresaId: string) {
+    if (!escopo.empresaIds?.includes(empresaId)) throw new BadRequestException('A empresa precisa ser a matriz ou uma filial do seu grupo');
+  }
+
+  // Só usuários operacionais do grupo: dono e admin não são editáveis daqui
+  private async buscarOperacional(escopo: EscopoSessao, id: string) {
+    const [rows]: any = await this.pool.query('SELECT id, email, papel, empresa_id FROM usuarios WHERE id=? AND empresa_id IN (?)', [id, escopo.empresaIds]);
     if (!rows.length) throw new NotFoundException('Usuário não encontrado');
+    if (rows[0].papel === 'owner' || rows[0].papel === 'admin') throw new BadRequestException('Dono e admin são geridos pelo admin do sistema');
     return rows[0];
   }
 

@@ -1,12 +1,11 @@
 import React from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { api, getEmpresaId, getToken, setSessao } from './api.js';
-import { Carregando, Confirmacao, Toasts } from './ui.jsx';
+import { Confirmacao, Toasts } from './ui.jsx';
 import Shell from './Shell.jsx';
 import Login from './pages/Login.jsx';
-import Cadastro from './pages/Cadastro.jsx';
 
-// Sessão (usuário, conta, empresas) disponível para toda a área logada
+// Sessão (usuário, escopo, empresa ativa) disponível para toda a área logada
 export const SessaoContext = React.createContext(null);
 
 export default function App() {
@@ -14,10 +13,12 @@ export default function App() {
   const [empresaId, setEmpresaId] = React.useState(getEmpresaId());
 
   const aplicar = React.useCallback((dados) => {
-    const id = dados.empresas.some((e) => e.id === getEmpresaId()) ? getEmpresaId() : dados.empresas[0]?.id || null;
+    const lista = dados.escopo.empresas || [];
+    const guardada = getEmpresaId();
+    const id = lista.some((e) => e.id === guardada) ? guardada : dados.escopo.empresa_padrao;
     setSessao(dados.token || getToken(), id);
     setEmpresaId(id);
-    setSessaoAtual({ usuario: dados.usuario, conta: dados.conta, empresas: dados.empresas });
+    setSessaoAtual({ usuario: dados.usuario, escopo: dados.escopo });
   }, []);
 
   const recarregar = React.useCallback(async () => {
@@ -43,13 +44,16 @@ export default function App() {
 
   if (sessao === undefined) return <div className="vazio" style={{ paddingTop: 80 }}>Carregando…</div>;
 
+  const valor = sessao
+    ? { ...sessao, empresas: sessao.escopo.empresas, empresaId, trocarEmpresa, recarregar, sair: () => setSessaoAtual(null) }
+    : null;
+
   return (
-    <SessaoContext.Provider value={{ ...(sessao || {}), empresaId, trocarEmpresa, recarregar, sair: () => setSessaoAtual(null) }}>
+    <SessaoContext.Provider value={valor}>
       <Toasts />
       <Confirmacao />
       <Routes>
         <Route path="/entrar" element={sessao ? <Navigate to="/" replace /> : <Login aoEntrar={aplicar} />} />
-        <Route path="/cadastro" element={sessao ? <Navigate to="/" replace /> : <Cadastro aoEntrar={aplicar} />} />
         <Route path="/*" element={sessao ? <Shell /> : <Navigate to="/entrar" replace />} />
       </Routes>
     </SessaoContext.Provider>

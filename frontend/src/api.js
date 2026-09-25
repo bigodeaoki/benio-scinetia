@@ -1,10 +1,10 @@
-// Cliente HTTP: token JWT (que carrega a conta) e empresa ativa
+// Cliente HTTP: token JWT e empresa ativa (UUID) dentro do escopo do usuário
 const CHAVE_TOKEN = 'scientia_saas_token';
 const CHAVE_EMPRESA = 'scientia_saas_empresa';
 
 const sessao = {
   token: localStorage.getItem(CHAVE_TOKEN) || null,
-  empresaId: Number(localStorage.getItem(CHAVE_EMPRESA)) || null,
+  empresaId: localStorage.getItem(CHAVE_EMPRESA) || null,
 };
 
 export const getToken = () => sessao.token;

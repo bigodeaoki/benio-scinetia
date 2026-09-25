@@ -32,7 +32,8 @@ services:
       DB_PASSWORD: scientia123
       DB_NAME: scientia
       JWT_SECRET: segredo-de-desenvolvimento-troque-em-producao
-      TRIAL_DIAS: 14
+      ADMIN_EMAIL: admin@scientia.com
+      ADMIN_SENHA: admin123
     ports:
       - "4100:4000"
     depends_on:

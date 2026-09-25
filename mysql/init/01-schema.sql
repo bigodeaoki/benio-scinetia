@@ -1,82 +1,79 @@
 -- =====================================================================
--- SCIENTIA SaaS — schema inicial (v0)
+-- SCIENTIA SaaS — schema v1 (escopo)
 --
--- Uma CONTA é um cliente do SaaS: tem suas empresas, seus usuários e seus
--- dados. Todo dado de negócio pertence a uma empresa, e a empresa a uma
--- conta. Um usuário pertence a uma única conta (e-mail único no sistema).
+-- Três visões:
+--   admin  — operador do SaaS, sem empresa: cadastra empresas (matriz) e seus
+--            donos e controla usuários de qualquer empresa. Não cria filial.
+--   owner  — dono da matriz: cadastra filiais e usuários do seu grupo
+--            (matriz + filiais) e alterna entre as empresas do grupo.
+--   demais — pertencem a uma empresa (matriz ou filial) e só enxergam ela.
 --
--- Só roda em volume novo (docker-entrypoint-initdb.d). Mudanças depois
--- disso entram em mysql/migrations/, sempre idempotentes.
+-- Convenção das entidades: id UUID gerado na aplicação, criado_em e
+-- atualizado_em mantidos pelo banco, sem exclusão física (ativo).
+-- Só roda em volume novo; mudanças posteriores entram em mysql/migrations/.
 -- =====================================================================
 SET NAMES utf8mb4;
 
-CREATE TABLE contas (
-  id INT AUTO_INCREMENT PRIMARY KEY,
+CREATE TABLE empresas (
+  id CHAR(36) NOT NULL PRIMARY KEY,
   nome VARCHAR(150) NOT NULL,
-  slug VARCHAR(60) NOT NULL UNIQUE,                    -- identificador público (url, suporte)
-  plano ENUM('trial','basico','pro') NOT NULL DEFAULT 'trial',
-  status ENUM('ativa','suspensa','cancelada') NOT NULL DEFAULT 'ativa',
-  trial_ate DATE NULL,
-  criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  cnpj VARCHAR(14) NULL,
+  matriz TINYINT(1) NOT NULL DEFAULT 1,
+  filial TINYINT(1) NOT NULL DEFAULT 0,
+  empresa_id CHAR(36) NULL,                              -- matriz desta filial; NULL quando é matriz
+  ativo TINYINT(1) NOT NULL DEFAULT 1,
+  criado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  atualizado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  KEY idx_empresas_matriz (empresa_id),
+  -- não existe filial sem matriz, nem matriz apontando para outra empresa
+  CONSTRAINT ck_empresa_tipo CHECK (
+    (matriz = 1 AND filial = 0 AND empresa_id IS NULL) OR
+    (matriz = 0 AND filial = 1 AND empresa_id IS NOT NULL)
+  ),
+  FOREIGN KEY (empresa_id) REFERENCES empresas(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
 CREATE TABLE usuarios (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  conta_id INT NOT NULL,
+  id CHAR(36) NOT NULL PRIMARY KEY,
+  empresa_id CHAR(36) NULL,                              -- NULL só para o admin global
   nome VARCHAR(120) NOT NULL,
   email VARCHAR(160) NOT NULL UNIQUE,
   senha_hash VARCHAR(100) NOT NULL,
-  papel ENUM('admin','producao','qualidade','compras','vendas','administrativo','financeiro','operador') NOT NULL DEFAULT 'operador',
+  papel ENUM('admin','owner','producao','qualidade','compras','vendas','administrativo','financeiro','operador') NOT NULL DEFAULT 'operador',
   ativo TINYINT(1) NOT NULL DEFAULT 1,
-  email_verificado_em DATETIME NULL,
   ultimo_login_em DATETIME NULL,
-  criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  KEY idx_usuarios_conta (conta_id),
-  FOREIGN KEY (conta_id) REFERENCES contas(id) ON DELETE CASCADE
+  criado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  atualizado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  KEY idx_usuarios_empresa (empresa_id),
+  CONSTRAINT ck_usuario_empresa CHECK (
+    (papel = 'admin' AND empresa_id IS NULL) OR (papel <> 'admin' AND empresa_id IS NOT NULL)
+  ),
+  FOREIGN KEY (empresa_id) REFERENCES empresas(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
-CREATE TABLE empresas (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  conta_id INT NOT NULL,
-  razao_social VARCHAR(200) NOT NULL,
-  nome_fantasia VARCHAR(200),
-  cnpj VARCHAR(14),
-  ie VARCHAR(20),
-  uf CHAR(2) NOT NULL DEFAULT 'SP',
-  municipio VARCHAR(120),
-  endereco VARCHAR(255),
-  regime ENUM('simples','presumido','real') NOT NULL DEFAULT 'presumido',
-  aliquota_simples DECIMAL(6,3) NOT NULL DEFAULT 6.000, -- alíquota efetiva do DAS (%)
-  criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  KEY idx_empresas_conta (conta_id),
-  FOREIGN KEY (conta_id) REFERENCES contas(id) ON DELETE CASCADE
-) ENGINE=InnoDB;
-
--- Trilha de auditoria: quem fez o quê, em qual empresa da conta
+-- Trilha de auditoria: quem fez o quê, em qual empresa de qual grupo (matriz)
 CREATE TABLE auditoria (
   id BIGINT AUTO_INCREMENT PRIMARY KEY,
-  conta_id INT NOT NULL,
-  empresa_id INT NULL,
-  usuario_id INT NULL,
-  acao VARCHAR(60) NOT NULL,                           -- ex.: empresa.criada, usuario.inativado
+  matriz_id CHAR(36) NULL,                               -- grupo onde aconteceu; NULL em ações globais do admin
+  empresa_id CHAR(36) NULL,
+  usuario_id CHAR(36) NULL,
+  acao VARCHAR(60) NOT NULL,                             -- ex.: filial.criada, usuario.inativado
   entidade VARCHAR(60) NULL,
-  entidade_id VARCHAR(36) NULL,                        -- id numérico ou UUID da entidade
+  entidade_id VARCHAR(36) NULL,
   detalhes JSON NULL,
-  criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  KEY idx_auditoria_conta (conta_id, id),
-  FOREIGN KEY (conta_id) REFERENCES contas(id) ON DELETE CASCADE,
+  criado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_auditoria_matriz (matriz_id, id),
+  FOREIGN KEY (matriz_id) REFERENCES empresas(id) ON DELETE SET NULL,
   FOREIGN KEY (empresa_id) REFERENCES empresas(id) ON DELETE SET NULL,
   FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE SET NULL
 ) ENGINE=InnoDB;
 
--- Matérias-primas: insumos de cada empresa. Convenção de entidade do SaaS:
--- id UUID (gerado na aplicação), criado_em e atualizado_em mantidos pelo banco,
--- escopo por empresa (que pertence à conta) e sem exclusão física (ativo).
+-- Matérias-primas: insumos de cada empresa (matriz ou filial)
 CREATE TABLE materias_primas (
   id CHAR(36) NOT NULL PRIMARY KEY,
-  empresa_id INT NOT NULL,
+  empresa_id CHAR(36) NOT NULL,
   nome VARCHAR(150) NOT NULL,
-  unidade VARCHAR(20) NOT NULL DEFAULT 'un',            -- kg, L, un...
+  unidade VARCHAR(20) NOT NULL DEFAULT 'un',             -- kg, L, un...
   descricao VARCHAR(255) NULL,
   ativo TINYINT(1) NOT NULL DEFAULT 1,
   criado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,

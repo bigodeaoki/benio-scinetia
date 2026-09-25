@@ -2,28 +2,22 @@ import { CanActivate, ExecutionContext, ForbiddenException, Inject, Injectable, 
 import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
 import { POOL, Pool } from '../db/database.module';
-import { IS_PUBLIC, PAPEIS } from './decorators';
+import { EscopoSessao, IS_PUBLIC, PAPEIS } from './decorators';
 
-// Toda requisição autenticada carrega a conta do usuário (tenant). A empresa
-// ativa vem do header X-Empresa-Id e precisa pertencer à mesma conta.
+// Monta o escopo de cada requisição: admin vê tudo; dono vê o grupo da sua
+// matriz (matriz + filiais); os demais só a própria empresa. A empresa ativa
+// vem do header X-Empresa-Id e precisa estar dentro do escopo.
 @Injectable()
 export class AuthGuard implements CanActivate {
-  constructor(
-    private jwt: JwtService,
-    private reflector: Reflector,
-    @Inject(POOL) private pool: Pool,
-  ) {}
+  constructor(private jwt: JwtService, private reflector: Reflector, @Inject(POOL) private pool: Pool) {}
 
   async canActivate(ctx: ExecutionContext): Promise<boolean> {
-    const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC, [ctx.getHandler(), ctx.getClass()]);
-    if (isPublic) return true;
+    if (this.reflector.getAllAndOverride<boolean>(IS_PUBLIC, [ctx.getHandler(), ctx.getClass()])) return true;
 
     const req = ctx.switchToHttp().getRequest();
     const header: string = req.headers['authorization'] || '';
-    // Downloads (Excel/PDF) enviam o token via query string
     const token = header.startsWith('Bearer ') ? header.slice(7) : (req.query.token as string);
     if (!token) throw new UnauthorizedException('Token ausente');
-
     let payload: any;
     try {
       payload = await this.jwt.verifyAsync(token);
@@ -32,35 +26,48 @@ export class AuthGuard implements CanActivate {
     }
 
     const [rows]: any = await this.pool.query(
-      `SELECT u.id, u.nome, u.email, u.papel, u.ativo, u.conta_id,
-              c.nome AS conta_nome, c.slug AS conta_slug, c.status AS conta_status, c.plano, c.trial_ate
-         FROM usuarios u JOIN contas c ON c.id = u.conta_id
+      `SELECT u.id, u.nome, u.email, u.papel, u.ativo, u.empresa_id,
+              e.matriz AS eh_matriz, e.empresa_id AS matriz_da_filial, e.ativo AS empresa_ativa
+         FROM usuarios u LEFT JOIN empresas e ON e.id = u.empresa_id
         WHERE u.id = ?`,
       [payload.sub],
     );
-    const usuario = rows[0];
-    if (!usuario || !usuario.ativo) throw new UnauthorizedException('Usuário inativo');
-    if (Number(usuario.conta_id) !== Number(payload.conta)) throw new UnauthorizedException('Sessão inválida');
-    if (usuario.conta_status !== 'ativa') throw new ForbiddenException('Conta suspensa — fale com o suporte');
+    const u = rows[0];
+    if (!u || !u.ativo) throw new UnauthorizedException('Usuário inativo');
 
-    const [empresas]: any = await this.pool.query('SELECT id FROM empresas WHERE conta_id = ? ORDER BY id', [usuario.conta_id]);
-    const ids: number[] = empresas.map((e: any) => Number(e.id));
-    const pedida = Number(req.headers['x-empresa-id'] || req.query.empresa || 0);
-    if (pedida && !ids.includes(pedida)) throw new ForbiddenException('Sem acesso a esta empresa');
-
-    const papeis = this.reflector.getAllAndOverride<string[]>(PAPEIS, [ctx.getHandler(), ctx.getClass()]);
-    if (papeis?.length && !papeis.includes(usuario.papel)) {
-      throw new ForbiddenException('Permissão insuficiente para esta operação');
+    let escopo: EscopoSessao;
+    if (u.papel === 'admin') {
+      escopo = { papel: 'admin', matrizId: null, empresaIds: null };
+    } else {
+      if (!u.empresa_id) throw new ForbiddenException('Usuário sem empresa — fale com o suporte');
+      const matrizId = u.eh_matriz ? u.empresa_id : u.matriz_da_filial;
+      const [grupo]: any = await this.pool.query(
+        'SELECT id, ativo FROM empresas WHERE id = ? OR empresa_id = ? ORDER BY matriz DESC, nome', [matrizId, matrizId],
+      );
+      const matriz = grupo.find((g: any) => g.id === matrizId);
+      // Matriz suspensa (pelo admin) derruba o grupo inteiro; filial inativa (pelo dono), só quem é dela
+      if (!matriz?.ativo) throw new ForbiddenException('Empresa suspensa — fale com o suporte');
+      if (!u.empresa_ativa) throw new ForbiddenException('Filial inativa — fale com o dono da empresa');
+      const empresaIds = u.papel === 'owner' ? grupo.map((g: any) => g.id) : [u.empresa_id];
+      escopo = { papel: u.papel, matrizId, empresaIds };
     }
 
-    req.usuario = { id: usuario.id, nome: usuario.nome, email: usuario.email, papel: usuario.papel };
-    req.conta = {
-      id: usuario.conta_id, nome: usuario.conta_nome, slug: usuario.conta_slug,
-      status: usuario.conta_status, plano: usuario.plano, trial_ate: usuario.trial_ate,
-    };
-    req.contaId = usuario.conta_id;
-    req.empresaId = pedida || ids[0] || null;
-    req.empresaIds = ids;
+    const pedida = String(req.headers['x-empresa-id'] || req.query.empresa || '') || null;
+    if (pedida) {
+      if (escopo.empresaIds) {
+        if (!escopo.empresaIds.includes(pedida)) throw new ForbiddenException('Sem acesso a esta empresa');
+      } else {
+        const [existe]: any = await this.pool.query('SELECT id FROM empresas WHERE id = ?', [pedida]);
+        if (!existe.length) throw new ForbiddenException('Empresa não encontrada');
+      }
+    }
+
+    const papeis = this.reflector.getAllAndOverride<string[]>(PAPEIS, [ctx.getHandler(), ctx.getClass()]);
+    if (papeis?.length && !papeis.includes(u.papel)) throw new ForbiddenException('Permissão insuficiente para esta operação');
+
+    req.usuario = { id: u.id, nome: u.nome, email: u.email, papel: u.papel, empresa_id: u.empresa_id };
+    req.escopo = escopo;
+    req.empresaId = pedida || (u.papel === 'owner' ? escopo.matrizId : u.empresa_id) || null;
     return true;
   }
 }

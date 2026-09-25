@@ -1,17 +1,23 @@
 # Scientia SaaS
 
-Custos de produção industrial como serviço: cada cliente é uma **conta** com suas empresas, usuários e dados, isolados das demais contas. Recomeço do zero do Scientia v1 (repositório `benio-back`, tag `legado-v1`), na mesma stack: NestJS + MySQL no backend, React + Vite no frontend, Docker para rodar local e Railway para produção.
+Custos de produção industrial como serviço. Recomeço do zero do Scientia v1 (repositório `benio-back`, tag `legado-v1`), na mesma stack: NestJS + MySQL no backend, React + Vite no frontend, Docker para rodar local e Railway para produção.
 
-## Decisões de base
+## Escopo (quem vê o quê)
 
-- **Conta é o tenant.** Toda empresa pertence a uma conta e todo dado de negócio pertence a uma empresa. O JWT carrega a conta; o header `X-Empresa-Id` escolhe a empresa ativa dentro dela.
-- **Um usuário, uma conta.** E-mail único no sistema. Papéis por usuário: admin, produção, qualidade, compras, vendas, administrativo, financeiro, operador.
-- **Cadastro self-service** cria conta, primeira empresa e admin, com período de teste (`TRIAL_DIAS`).
-- **Auditoria desde o dia zero:** toda escrita relevante registra quem fez o quê, em qual empresa.
+- **Admin** — operador do SaaS, sem empresa. Visão global: cadastra empresas (matriz) já com o dono, edita e suspende empresas, controla usuários de qualquer empresa. Não cadastra filial.
+- **Dono (owner)** — usuário da matriz. Cadastra filiais e usuários operacionais do seu grupo (matriz + filiais) e alterna entre as empresas do grupo pelo seletor do topo.
+- **Demais papéis** (produção, qualidade, compras, vendas, administrativo, financeiro, operador) — pertencem a uma empresa, matriz ou filial, e só enxergam ela. O papel define o que podem alterar.
+
+Não existe filial sem matriz: toda filial aponta para a sua matriz (`empresas.empresa_id`), e o banco recusa qualquer outra combinação. Não há cadastro público: o primeiro admin nasce na subida (`ADMIN_EMAIL` / `ADMIN_SENHA`) e cria as empresas.
+
+## Convenções
+
+- **Entidades:** id UUID v4 gerado na aplicação, `criado_em` e `atualizado_em` mantidos pelo banco, sem exclusão física (`ativo`).
+- **Escopo em toda requisição:** o guard monta `escopo` (papel, matriz do grupo, empresas permitidas) e valida o header `X-Empresa-Id`. Serviços sempre filtram por esse escopo.
 - **Validação por DTO** em toda entrada; campo desconhecido é recusado.
+- **Auditoria** em toda escrita: quem fez o quê, em qual empresa de qual grupo.
 - **Segredos obrigatórios em produção:** o backend não sobe sem `JWT_SECRET`.
-- **Entidades de domínio:** id UUID gerado na aplicação, `criado_em` e `atualizado_em` mantidos pelo banco, escopo por empresa, sem exclusão física. Primeira: matérias-primas.
-- **Motor de custos com testes:** as regras numéricas ficam em `backend/src/shared/calculos.ts`, puras e cobertas por Jest.
+- **Regras numéricas puras e testadas** em `backend/src/shared/calculos.ts` (Jest).
 
 ## Rodar local
 
@@ -19,7 +25,7 @@ Custos de produção industrial como serviço: cada cliente é uma **conta** com
 docker compose up -d --build
 ```
 
-Frontend em http://localhost:8081, API em http://localhost:4100/api, MySQL na porta 3308 (usuário `scientia`, senha `scientia123`, banco `scientia`). Portas diferentes do v1 para os dois conviverem.
+Frontend em http://localhost:8081, API em http://localhost:4100/api, MySQL na porta 3308 (usuário `scientia`, senha `scientia123`, banco `scientia`). Portas diferentes do v1 para os dois conviverem. Acesso inicial: `admin@scientia.com` / `admin123`.
 
 Testes do backend, na sua máquina:
 
@@ -31,25 +37,26 @@ cd backend && npm install && npm test
 
 ```
 backend/src
-  auth/        cadastro, login, sessão, guard com conta + empresa, papéis
-  contas/      dados da conta, totais e auditoria recente
-  empresas/    empresas da conta
-  usuarios/    usuários da conta (nunca excluídos, só inativados)
-  materias/    matérias-primas da empresa ativa (molde das entidades: UUID, criado_em, atualizado_em)
+  auth/        login, sessão, guard de escopo, papéis, bootstrap do admin
+  admin/       visão global: empresas (matriz + dono) e usuários de qualquer empresa
+  empresas/    empresas do escopo; filiais (só o dono)
+  usuarios/    usuários operacionais do grupo (só o dono)
+  materias/    matérias-primas da empresa ativa
+  painel/      resumo da tela inicial por visão
   auditoria/   trilha de auditoria (global)
-  shared/      funções puras de cálculo (com testes) e filtro de erros
+  shared/      funções puras de cálculo (com testes), ids, DTOs comuns, filtro de erros
   db/          pool MySQL
 frontend/src
-  App.jsx      rotas públicas (entrar, cadastro) e a área logada
-  Shell.jsx    menu lateral, seletor de empresa, cabeçalho
-  pages/       Dashboard, Matérias-primas, Empresas, Usuários, Conta, Login, Cadastro
+  App.jsx      rota pública (entrar) e a área logada
+  Shell.jsx    menu por visão, seletor de empresa, cabeçalho
+  pages/       Dashboard, Matérias-primas, Filiais, Usuários, admin/Empresas, admin/Usuários, Login
 mysql/init     schema inicial (só roda em volume novo)
 mysql/migrations  scripts idempotentes, aplicados em produção antes do deploy
 ```
 
 ## Próximas fases
 
-1. Identidade: verificação de e-mail, recuperação de senha, convites.
-2. Domínio: matérias-primas com lotes FIFO, fórmulas, linhas de processo, envases, produção, custos (portados do v1 sobre testes).
-3. Cobrança: planos, limites, Stripe ou Asaas, bloqueio suave.
-4. Operação: super-admin do operador, backups, monitoramento.
+1. Identidade: recuperação de senha e convites por e-mail.
+2. Domínio: lotes de compra (FIFO), fórmulas, linhas de processo, envases, produção e custos, portados do v1 sobre testes.
+3. Cobrança por matriz: planos, limites, bloqueio suave.
+4. Operação: backups, monitoramento, impersonação do admin para suporte.
