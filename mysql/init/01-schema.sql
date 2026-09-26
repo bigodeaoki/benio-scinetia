@@ -325,7 +325,8 @@ CREATE TABLE pedidos (
 
 -- Formulações do pedido, em histórico: a ativa é a atual. Ao adicionar outra
 -- (ex.: o cliente não aprovou a amostra), a anterior entra em desuso aqui,
--- sem mexer no cadastro de formulações.
+-- sem mexer no cadastro de formulações. A aprovação do cliente (data e quem
+-- confirmou) fica na formulação ativa ao avançar da etapa 1.
 CREATE TABLE pedido_formulacoes (
   id CHAR(36) NOT NULL PRIMARY KEY,
   pedido_id CHAR(36) NOT NULL,
@@ -335,10 +336,13 @@ CREATE TABLE pedido_formulacoes (
   usuario_id CHAR(36) NULL,
   criado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   desativada_em DATETIME NULL,
+  aprovada_em DATETIME NULL,
+  aprovada_por CHAR(36) NULL,
   KEY idx_pedido_formulacoes (pedido_id, ativa, criado_em),
   FOREIGN KEY (pedido_id) REFERENCES pedidos(id) ON DELETE CASCADE,
   FOREIGN KEY (formulacao_id) REFERENCES formulacoes(id),
-  FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE SET NULL
+  FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE SET NULL,
+  FOREIGN KEY (aprovada_por) REFERENCES usuarios(id) ON DELETE SET NULL
 ) ENGINE=InnoDB;
 
 -- Envios de amostra do pedido: quantidade da formulação, embalagens usadas e

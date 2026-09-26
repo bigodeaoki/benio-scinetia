@@ -21,15 +21,30 @@ export default function PedidoDetalhe() {
   const podeEditar = papelEdita && (novo || p?.status === 'rascunho');
   const empresaDe = (x, campo = 'empresa') => (x[`${campo}_id`] === s.escopo?.matriz?.id ? `${x[`${campo}_nome`]} (matriz)` : x[`${campo}_nome`]);
 
-  // Avançar salva a etapa em que o pedido está; voltar e clicar no stepper só mudam a visão
+  // Avançar salva a etapa em que o pedido está; voltar e clicar no stepper só mudam a visão.
+  // Sair da etapa 1 pergunta se o cliente aprovou a formulação ativa (fica registrado nela)
   async function avancar() {
     const n = etapaVista + 1;
     if (n > ETAPAS.length) return;
     if (!podeEditar || n <= p.etapa) { setVista(n); return; }
+    let clienteAprovou = false;
+    if (etapaVista === 1) {
+      const ativa = p.formulacoes.find((f) => f.ativa);
+      if (!ativa) return toast.erro('Adicione uma formulação ao pedido antes de avançar');
+      if (!ativa.aprovada_em) {
+        clienteAprovou = await confirmar({
+          titulo: 'Cliente aprovou?',
+          mensagem: `O cliente aprovou a formulação "${ativa.nome}"? Ao confirmar, a aprovação fica registrada nela e o pedido avança para a etapa 2.`,
+          confirmarTexto: 'Sim, cliente aprovou', cancelarTexto: 'Ainda não',
+        });
+        if (!clienteAprovou) return;
+      }
+    }
     try {
-      await api(`/pedidos/${id}/etapa`, { method: 'PUT', body: { etapa: n } });
+      await api(`/pedidos/${id}/etapa`, { method: 'PUT', body: { etapa: n, ...(clienteAprovou ? { cliente_aprovou: true } : {}) } });
       setVista(n);
       recarregar();
+      if (clienteAprovou) toast.sucesso('Aprovação do cliente registrada');
     } catch (e) {
       toast.erro(e.message);
     }
@@ -201,7 +216,7 @@ function Etapa1({ p, podeEditar, recarregar, empresaDe }) {
                   <td className="negrito">{f.nome} {!f.formulacao_ativa && <Badge cor="vermelho">inativa no cadastro</Badge>}</td>
                   <td>{Number(f.itens) === 0 ? <Badge cor="amarelo">sem ingredientes</Badge> : `${f.itens} ingrediente(s)`}</td>
                   <td>{empresaDe(f, 'formulacao_empresa')}</td>
-                  <td>{f.ativa ? <Badge cor="verde">Ativa</Badge> : <Badge cor="cinza">Em desuso</Badge>}</td>
+                  <td>{f.ativa ? (f.aprovada_em ? <Badge cor="verde">Ativa · aprovada pelo cliente em {fmtData(f.aprovada_em)}{f.aprovada_por_nome ? ` (${f.aprovada_por_nome})` : ''}</Badge> : <Badge cor="azul">Ativa · aguardando aprovação</Badge>) : <Badge cor="cinza">Em desuso</Badge>}</td>
                   <td>{fmtDataHora(f.criado_em)}</td>
                   <td>{f.desativada_em ? fmtDataHora(f.desativada_em) : '—'}</td>
                   <td className="texto-suave">{f.motivo || '—'}</td>

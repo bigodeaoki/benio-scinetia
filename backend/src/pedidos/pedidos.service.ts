@@ -53,9 +53,9 @@ export class PedidosService {
     const [formulacoes]: any = await this.pool.query(
       `SELECT pf.id, pf.formulacao_id, f.nome, f.empresa_id AS formulacao_empresa_id, fe.nome AS formulacao_empresa_nome, f.ativo AS formulacao_ativa,
               (SELECT COUNT(*) FROM formulacao_itens i WHERE i.formulacao_id = f.id) AS itens,
-              pf.ativa, pf.motivo, pf.criado_em, pf.desativada_em, u.nome AS usuario_nome
+              pf.ativa, pf.motivo, pf.criado_em, pf.desativada_em, pf.aprovada_em, ap.nome AS aprovada_por_nome, u.nome AS usuario_nome
          FROM pedido_formulacoes pf JOIN formulacoes f ON f.id = pf.formulacao_id JOIN empresas fe ON fe.id = f.empresa_id
-         LEFT JOIN usuarios u ON u.id = pf.usuario_id
+         LEFT JOIN usuarios u ON u.id = pf.usuario_id LEFT JOIN usuarios ap ON ap.id = pf.aprovada_por
         WHERE pf.pedido_id = ? ORDER BY pf.ativa DESC, pf.criado_em DESC`,
       [id],
     );
@@ -162,9 +162,24 @@ export class PedidosService {
     });
   }
 
-  // Etapa onde o usuário parou (o stepper), só em rascunho
-  async definirEtapa(escopo: EscopoSessao, empresaId: string, usuarioId: string, id: string, etapa: number) {
+
+  // Etapa onde o usuário parou (o stepper), só em rascunho. Para sair da etapa 1 é preciso ter
+  // formulação ativa e confirmar que o cliente a aprovou; a aprovação fica registrada nela
+  async definirEtapa(escopo: EscopoSessao, empresaId: string, usuarioId: string, id: string, etapa: number, clienteAprovou = false) {
     const atual = await this.exigirRascunho(escopo, empresaId, id);
+    if (etapa > 1) {
+      const [rows]: any = await this.pool.query('SELECT id, formulacao_id, aprovada_em FROM pedido_formulacoes WHERE pedido_id = ? AND ativa = 1 LIMIT 1', [id]);
+      const ativa = rows[0];
+      if (!ativa) throw new BadRequestException('Adicione uma formulação ao pedido antes de avançar');
+      if (!ativa.aprovada_em) {
+        if (!clienteAprovou) throw new BadRequestException('Confirme que o cliente aprovou a formulação para avançar');
+        await this.pool.query('UPDATE pedido_formulacoes SET aprovada_em = NOW(), aprovada_por = ? WHERE id = ?', [usuarioId, ativa.id]);
+        await this.auditoria.registrar(null, {
+          matriz_id: atual.matriz_id, empresa_id: atual.empresa_id, usuario_id: usuarioId, acao: 'pedido.formulacao_aprovada', entidade: 'pedidos', entidade_id: id,
+          detalhes: { numero: atual.numero, formulacao_id: ativa.formulacao_id },
+        });
+      }
+    }
     if (etapa !== atual.etapa) {
       await this.pool.query('UPDATE pedidos SET etapa = ? WHERE id = ?', [etapa, id]);
       await this.auditoria.registrar(null, {

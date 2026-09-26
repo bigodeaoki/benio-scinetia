@@ -42,7 +42,7 @@ export class PedidosController {
   // Etapa onde o usuário parou (o stepper)
   @Escrita() @Put(':id/etapa')
   definirEtapa(@Escopo() escopo: EscopoSessao, @EmpresaId() empresaId: string, @UsuarioAtual() usuario: any, @Param('id', Uuid()) id: string, @Body() dto: EtapaDto) {
-    return this.service.definirEtapa(escopo, empresaId, usuario.id, id, dto.etapa);
+    return this.service.definirEtapa(escopo, empresaId, usuario.id, id, dto.etapa, dto.cliente_aprovou === true);
   }
 
   // Nova formulação do pedido: a atual entra em desuso

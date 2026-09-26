@@ -1,4 +1,4 @@
-import { IsIn, IsInt, IsNumber, IsOptional, IsPositive, IsString, IsUUID, Length, Matches, Max, MaxLength, Min } from 'class-validator';
+import { IsBoolean, IsIn, IsInt, IsNumber, IsOptional, IsPositive, IsString, IsUUID, Length, Matches, Max, MaxLength, Min } from 'class-validator';
 
 // Etapas do pedido, na ordem. As não definidas já aparecem no stepper e ganham
 // conteúdo conforme forem desenhadas
@@ -42,6 +42,10 @@ export class StatusPedidoDto {
 export class EtapaDto {
   @IsInt({ message: 'Etapa inválida' }) @Min(1, { message: 'Etapa inválida' }) @Max(ETAPAS.length, { message: `Etapa: no máximo ${ETAPAS.length}` })
   etapa: number;
+
+  // Ao sair da etapa 1: o cliente aprovou a formulação ativa? A aprovação fica registrada nela
+  @IsOptional() @IsBoolean({ message: 'cliente_aprovou deve ser verdadeiro ou falso' })
+  cliente_aprovou?: boolean;
 }
 
 // Nova formulação do pedido: a atual entra em desuso (com o motivo, ex.: cliente não aprovou)
