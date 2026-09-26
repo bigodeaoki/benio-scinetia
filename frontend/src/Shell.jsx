@@ -16,6 +16,7 @@ import Funcionarios, { PODE_VER_FUNCIONARIOS } from './pages/Funcionarios.jsx';
 import Documentos from './pages/Documentos.jsx';
 import Clientes from './pages/Clientes.jsx';
 import Pedidos from './pages/Pedidos.jsx';
+import PedidoDetalhe from './pages/PedidoDetalhe.jsx';
 import Filiais from './pages/Filiais.jsx';
 import Usuarios from './pages/Usuarios.jsx';
 import AdminEmpresas from './pages/admin/Empresas.jsx';
@@ -114,6 +115,7 @@ export default function Shell() {
             {!ehAdmin && <Route path="documentos" element={<Documentos />} />}
             {!ehAdmin && <Route path="clientes" element={<Clientes />} />}
             {!ehAdmin && <Route path="pedidos" element={<Pedidos />} />}
+            {!ehAdmin && <Route path="pedidos/:id" element={<PedidoDetalhe />} />}
             {!ehAdmin && PODE_VER_FUNCIONARIOS.includes(papel) && <Route path="funcionarios" element={<Funcionarios />} />}
             {ehDono && <Route path="filiais" element={<Filiais />} />}
             {ehDono && <Route path="usuarios" element={<Usuarios />} />}

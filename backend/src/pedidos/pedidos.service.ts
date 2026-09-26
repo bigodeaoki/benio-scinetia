@@ -2,10 +2,11 @@ import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundEx
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { EscopoSessao } from '../auth/decorators';
 import { POOL, Pool } from '../db/database.module';
+import { EnvasesService } from '../envases/envases.service';
 import { FormulacoesService } from '../formulacoes/formulacoes.service';
 import { MateriasService } from '../materias/materias.service';
 import { novoId } from '../shared/ids';
-import { PedidoDto } from './pedidos.dto';
+import { AmostraDto, PedidoDto, TrocaFormulacaoDto } from './pedidos.dto';
 
 const COLUNAS = `p.id, p.matriz_id, p.empresa_id, e.nome AS empresa_nome, p.numero, p.cliente_id, c.razao_social AS cliente_nome, c.nome_fantasia AS cliente_fantasia,
   p.formulacao_id, f.nome AS formulacao_nome, f.empresa_id AS formulacao_empresa_id,
@@ -15,11 +16,18 @@ const JUNCOES = `FROM pedidos p JOIN empresas e ON e.id = p.empresa_id JOIN clie
   LEFT JOIN formulacoes f ON f.id = p.formulacao_id LEFT JOIN usuarios u ON u.id = p.usuario_id`;
 
 // Pedidos: entrada em etapas, salva no meio. Cada empresa cria os seus e todo
-// o grupo enxerga; altera quem tem a empresa dona no escopo. Etapa 1: cliente
-// do grupo e formulação (existente, ou nova só com o nome).
+// o grupo enxerga; altera quem tem a empresa dona no escopo, só em rascunho.
+// Etapa 1: histórico de formulações do pedido (a nova põe a anterior em
+// desuso) e envios de amostra (gasto informativo, fora do custo).
 @Injectable()
 export class PedidosService {
-  constructor(@Inject(POOL) private pool: Pool, private auditoria: AuditoriaService, private formulacoes: FormulacoesService, private materias: MateriasService) {}
+  constructor(
+    @Inject(POOL) private pool: Pool,
+    private auditoria: AuditoriaService,
+    private formulacoes: FormulacoesService,
+    private materias: MateriasService,
+    private envases: EnvasesService,
+  ) {}
 
   async listar(escopo: EscopoSessao, empresaId: string, filtro: { empresa?: string; status?: string } = {}) {
     const matriz = await this.grupoDe(escopo, empresaId);
@@ -39,6 +47,41 @@ export class PedidosService {
     return rows[0];
   }
 
+  // Cabeçalho + histórico de formulações + envios de amostra, com o resumo do gasto
+  async detalhar(escopo: EscopoSessao, empresaId: string, id: string) {
+    const pedido = await this.buscar(escopo, empresaId, id);
+    const [formulacoes]: any = await this.pool.query(
+      `SELECT pf.id, pf.formulacao_id, f.nome, f.empresa_id AS formulacao_empresa_id, fe.nome AS formulacao_empresa_nome, f.ativo AS formulacao_ativa,
+              (SELECT COUNT(*) FROM formulacao_itens i WHERE i.formulacao_id = f.id) AS itens,
+              pf.ativa, pf.motivo, pf.criado_em, pf.desativada_em, u.nome AS usuario_nome
+         FROM pedido_formulacoes pf JOIN formulacoes f ON f.id = pf.formulacao_id JOIN empresas fe ON fe.id = f.empresa_id
+         LEFT JOIN usuarios u ON u.id = pf.usuario_id
+        WHERE pf.pedido_id = ? ORDER BY pf.ativa DESC, pf.criado_em DESC`,
+      [id],
+    );
+    const [amostras]: any = await this.pool.query(
+      `SELECT a.id, a.formulacao_id, f.nome AS formulacao_nome, a.quantidade, a.unidade, a.envase_id, v.nome AS envase_nome, a.embalagens, a.logistica,
+              a.data_envio, a.observacoes, a.ativo, u.nome AS usuario_nome, a.criado_em, a.atualizado_em
+         FROM pedido_amostras a JOIN formulacoes f ON f.id = a.formulacao_id LEFT JOIN envases v ON v.id = a.envase_id LEFT JOIN usuarios u ON u.id = a.usuario_id
+        WHERE a.pedido_id = ? ORDER BY a.ativo DESC, a.data_envio DESC, a.criado_em DESC`,
+      [id],
+    );
+    return { ...pedido, formulacoes, amostras, amostras_resumo: this.resumoAmostras(amostras) };
+  }
+
+  // Só as ativas: nº de envios, logística total, embalagens e quantidade por unidade
+  private resumoAmostras(amostras: any[]) {
+    const ativas = amostras.filter((a) => a.ativo);
+    const quantidades: Record<string, number> = {};
+    for (const a of ativas) quantidades[a.unidade] = (quantidades[a.unidade] || 0) + Number(a.quantidade);
+    return {
+      envios: ativas.length,
+      logistica_total: Math.round(ativas.reduce((s, a) => s + Number(a.logistica), 0) * 100) / 100,
+      embalagens_total: ativas.reduce((s, a) => s + Number(a.embalagens), 0),
+      quantidades: Object.entries(quantidades).map(([unidade, total]) => ({ unidade, total: Math.round(total * 1000) / 1000 })),
+    };
+  }
+
   async criar(escopo: EscopoSessao, empresaId: string, usuarioId: string, dto: PedidoDto) {
     const matriz = await this.grupoDe(escopo, empresaId);
     const dona = this.empresaDona(escopo, empresaId, dto.empresa_id);
@@ -56,6 +99,7 @@ export class PedidosService {
         'INSERT INTO pedidos (id, matriz_id, empresa_id, numero, cliente_id, formulacao_id, status, etapa, observacoes, usuario_id) VALUES (?,?,?,?,?,?,?,?,?,?)',
         [id, matriz, dona, numero, cliente.id, formulacaoId, 'rascunho', dto.etapa || 1, dto.observacoes?.trim() || null, usuarioId],
       );
+      if (formulacaoId) await cx.query('INSERT INTO pedido_formulacoes (id, pedido_id, formulacao_id, usuario_id) VALUES (?,?,?,?)', [novoId(), id, formulacaoId, usuarioId]);
       await cx.commit();
     } catch (e: any) {
       await cx.rollback();
@@ -68,24 +112,134 @@ export class PedidosService {
       matriz_id: matriz, empresa_id: dona, usuario_id: usuarioId, acao: 'pedido.criado', entidade: 'pedidos', entidade_id: id,
       detalhes: { numero, cliente: cliente.razao_social, formulacao_id: formulacaoId },
     });
-    return this.buscar(escopo, empresaId, id);
+    return this.detalhar(escopo, empresaId, id);
   }
 
-  // Regrava os dados da etapa 1 e a etapa onde o usuário parou; só em rascunho
+  // Regrava o cabeçalho (cliente, observações, etapa). Formulação diferente da atual vira troca com histórico
   async atualizar(escopo: EscopoSessao, empresaId: string, usuarioId: string, id: string, dto: PedidoDto) {
-    const atual = await this.exigirEditavel(escopo, empresaId, id);
-    if (atual.status !== 'rascunho') throw new BadRequestException(`Pedido ${atual.status}: reabra para alterar`);
+    const atual = await this.exigirRascunho(escopo, empresaId, id);
     if (dto.empresa_id && dto.empresa_id !== atual.empresa_id) throw new BadRequestException('Pedido não muda de empresa');
     const cliente = await this.exigirCliente(atual.matriz_id, dto.cliente_id);
-    const formulacaoId = await this.resolverFormulacao(escopo, atual.empresa_id, usuarioId, dto);
-    await this.pool.query('UPDATE pedidos SET cliente_id=?, formulacao_id=?, observacoes=?, etapa=? WHERE id=?', [
-      cliente.id, formulacaoId, dto.observacoes?.trim() || null, dto.etapa || atual.etapa, id,
-    ]);
+    await this.pool.query('UPDATE pedidos SET cliente_id=?, observacoes=?, etapa=? WHERE id=?', [cliente.id, dto.observacoes?.trim() || null, dto.etapa || atual.etapa, id]);
+    if (dto.formulacao_id || dto.formulacao_nome) {
+      const nova = await this.resolverFormulacao(escopo, atual.empresa_id, usuarioId, dto);
+      if (nova && nova !== atual.formulacao_id) await this.aplicarFormulacao(atual, nova, usuarioId, undefined);
+    }
     await this.auditoria.registrar(null, {
       matriz_id: atual.matriz_id, empresa_id: atual.empresa_id, usuario_id: usuarioId, acao: 'pedido.alterado', entidade: 'pedidos', entidade_id: id,
-      detalhes: { numero: atual.numero, cliente: cliente.razao_social, formulacao_id: formulacaoId, etapa: dto.etapa || atual.etapa },
+      detalhes: { numero: atual.numero, cliente: cliente.razao_social, etapa: dto.etapa || atual.etapa },
     });
-    return this.buscar(escopo, empresaId, id);
+    return this.detalhar(escopo, empresaId, id);
+  }
+
+  // Nova formulação do pedido: a atual entra em desuso (com o motivo); o cadastro de formulações não muda
+  async trocarFormulacao(escopo: EscopoSessao, empresaId: string, usuarioId: string, id: string, dto: TrocaFormulacaoDto) {
+    const atual = await this.exigirRascunho(escopo, empresaId, id);
+    if (!dto.formulacao_id && !dto.formulacao_nome) throw new BadRequestException('Informe a formulação pelo id ou pelo nome');
+    const nova = await this.resolverFormulacao(escopo, atual.empresa_id, usuarioId, dto);
+    if (nova === atual.formulacao_id) throw new BadRequestException('Esta já é a formulação atual do pedido');
+    await this.aplicarFormulacao(atual, nova!, usuarioId, dto.motivo?.trim() || null);
+    return this.detalhar(escopo, empresaId, id);
+  }
+
+  private async aplicarFormulacao(pedido: any, novaId: string, usuarioId: string, motivo: string | null | undefined) {
+    const cx = await this.pool.getConnection();
+    try {
+      await cx.beginTransaction();
+      await cx.query('UPDATE pedido_formulacoes SET ativa = 0, desativada_em = NOW(), motivo = COALESCE(?, motivo) WHERE pedido_id = ? AND ativa = 1', [motivo ?? null, pedido.id]);
+      await cx.query('INSERT INTO pedido_formulacoes (id, pedido_id, formulacao_id, usuario_id) VALUES (?,?,?,?)', [novoId(), pedido.id, novaId, usuarioId]);
+      await cx.query('UPDATE pedidos SET formulacao_id = ? WHERE id = ?', [novaId, pedido.id]);
+      await cx.commit();
+    } catch (e) {
+      await cx.rollback();
+      throw e;
+    } finally {
+      cx.release();
+    }
+    await this.auditoria.registrar(null, {
+      matriz_id: pedido.matriz_id, empresa_id: pedido.empresa_id, usuario_id: usuarioId, acao: 'pedido.formulacao_trocada', entidade: 'pedidos', entidade_id: pedido.id,
+      detalhes: { numero: pedido.numero, de: pedido.formulacao_id, para: novaId, motivo: motivo || null },
+    });
+  }
+
+  // Etapa onde o usuário parou (o stepper), só em rascunho
+  async definirEtapa(escopo: EscopoSessao, empresaId: string, usuarioId: string, id: string, etapa: number) {
+    const atual = await this.exigirRascunho(escopo, empresaId, id);
+    if (etapa !== atual.etapa) {
+      await this.pool.query('UPDATE pedidos SET etapa = ? WHERE id = ?', [etapa, id]);
+      await this.auditoria.registrar(null, {
+        matriz_id: atual.matriz_id, empresa_id: atual.empresa_id, usuario_id: usuarioId, acao: 'pedido.etapa', entidade: 'pedidos', entidade_id: id,
+        detalhes: { numero: atual.numero, de: atual.etapa, para: etapa },
+      });
+    }
+    return this.detalhar(escopo, empresaId, id);
+  }
+
+  // Envio de amostra: formulação do histórico do pedido (padrão: a ativa), item de envase visível
+  // para a empresa do pedido. Gasto informativo, fora do custo
+  async registrarAmostra(escopo: EscopoSessao, empresaId: string, usuarioId: string, id: string, dto: AmostraDto) {
+    const pedido = await this.exigirRascunho(escopo, empresaId, id);
+    const a = await this.validarAmostra(escopo, pedido, dto);
+    const amostraId = novoId();
+    await this.pool.query(
+      'INSERT INTO pedido_amostras (id, pedido_id, formulacao_id, quantidade, unidade, envase_id, embalagens, logistica, data_envio, observacoes, usuario_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+      [amostraId, id, a.formulacao_id, a.quantidade, a.unidade, a.envase_id, a.embalagens, a.logistica, a.data_envio, a.observacoes, usuarioId],
+    );
+    await this.auditoria.registrar(null, {
+      matriz_id: pedido.matriz_id, empresa_id: pedido.empresa_id, usuario_id: usuarioId, acao: 'pedido.amostra_enviada', entidade: 'pedido_amostras', entidade_id: amostraId,
+      detalhes: { numero: pedido.numero, quantidade: a.quantidade, unidade: a.unidade, embalagens: a.embalagens, logistica: a.logistica },
+    });
+    return this.detalhar(escopo, empresaId, id);
+  }
+
+  async atualizarAmostra(escopo: EscopoSessao, empresaId: string, usuarioId: string, id: string, amostraId: string, dto: AmostraDto) {
+    const pedido = await this.exigirRascunho(escopo, empresaId, id);
+    await this.exigirAmostra(id, amostraId);
+    const a = await this.validarAmostra(escopo, pedido, dto);
+    await this.pool.query(
+      'UPDATE pedido_amostras SET formulacao_id=?, quantidade=?, unidade=?, envase_id=?, embalagens=?, logistica=?, data_envio=?, observacoes=? WHERE id=? AND pedido_id=?',
+      [a.formulacao_id, a.quantidade, a.unidade, a.envase_id, a.embalagens, a.logistica, a.data_envio, a.observacoes, amostraId, id],
+    );
+    await this.auditoria.registrar(null, {
+      matriz_id: pedido.matriz_id, empresa_id: pedido.empresa_id, usuario_id: usuarioId, acao: 'pedido.amostra_alterada', entidade: 'pedido_amostras', entidade_id: amostraId,
+      detalhes: { numero: pedido.numero, quantidade: a.quantidade, unidade: a.unidade, logistica: a.logistica },
+    });
+    return this.detalhar(escopo, empresaId, id);
+  }
+
+  // Envio lançado errado é cancelado (sai do resumo), nunca apagado
+  async alterarAtivoAmostra(escopo: EscopoSessao, empresaId: string, usuarioId: string, id: string, amostraId: string, ativo: boolean) {
+    const pedido = await this.exigirRascunho(escopo, empresaId, id);
+    await this.exigirAmostra(id, amostraId);
+    await this.pool.query('UPDATE pedido_amostras SET ativo=? WHERE id=? AND pedido_id=?', [ativo ? 1 : 0, amostraId, id]);
+    await this.auditoria.registrar(null, {
+      matriz_id: pedido.matriz_id, empresa_id: pedido.empresa_id, usuario_id: usuarioId, acao: ativo ? 'pedido.amostra_restaurada' : 'pedido.amostra_cancelada',
+      entidade: 'pedido_amostras', entidade_id: amostraId, detalhes: { numero: pedido.numero },
+    });
+    return this.detalhar(escopo, empresaId, id);
+  }
+
+  private async validarAmostra(escopo: EscopoSessao, pedido: any, dto: AmostraDto) {
+    const formulacaoId = dto.formulacao_id || pedido.formulacao_id;
+    if (!formulacaoId) throw new BadRequestException('O pedido ainda não tem formulação: adicione uma antes de registrar amostras');
+    const [hist]: any = await this.pool.query('SELECT id FROM pedido_formulacoes WHERE pedido_id = ? AND formulacao_id = ?', [pedido.id, formulacaoId]);
+    if (!hist.length) throw new BadRequestException('Formulação não faz parte deste pedido');
+    let envaseId: string | null = null;
+    if (dto.envase_id) {
+      const v = await this.envases.buscar(escopo, pedido.empresa_id, dto.envase_id).catch(() => {
+        throw new BadRequestException('Item de envase não encontrado para a empresa do pedido');
+      });
+      envaseId = v.id;
+    }
+    return {
+      formulacao_id: formulacaoId, quantidade: dto.quantidade, unidade: dto.unidade?.trim() || 'un', envase_id: envaseId,
+      embalagens: dto.embalagens ?? 0, logistica: dto.logistica ?? 0, data_envio: dto.data_envio, observacoes: dto.observacoes?.trim() || null,
+    };
+  }
+
+  private async exigirAmostra(pedidoId: string, amostraId: string) {
+    const [rows]: any = await this.pool.query('SELECT id FROM pedido_amostras WHERE id = ? AND pedido_id = ?', [amostraId, pedidoId]);
+    if (!rows.length) throw new NotFoundException('Envio de amostra não encontrado');
   }
 
   // Cancelar (de qualquer status) ou reabrir (só de cancelado, volta a rascunho)
@@ -98,12 +252,12 @@ export class PedidosService {
       matriz_id: atual.matriz_id, empresa_id: atual.empresa_id, usuario_id: usuarioId, acao: status === 'cancelado' ? 'pedido.cancelado' : 'pedido.reaberto',
       entidade: 'pedidos', entidade_id: id, detalhes: { numero: atual.numero },
     });
-    return this.buscar(escopo, empresaId, id);
+    return this.detalhar(escopo, empresaId, id);
   }
 
   // Formulação por id (visível para a empresa do pedido e ativa) ou por nome: reaproveita a
   // existente com o mesmo nome, senão cria uma nova só com o nome, na empresa do pedido
-  private async resolverFormulacao(escopo: EscopoSessao, dona: string, usuarioId: string, dto: PedidoDto): Promise<string | null> {
+  private async resolverFormulacao(escopo: EscopoSessao, dona: string, usuarioId: string, dto: { formulacao_id?: string; formulacao_nome?: string }): Promise<string | null> {
     if (dto.formulacao_id && dto.formulacao_nome) throw new BadRequestException('Informe a formulação pelo id ou pelo nome, não os dois');
     if (dto.formulacao_id) {
       const f = await this.formulacoes.buscar(escopo, dona, dto.formulacao_id).catch(() => {
@@ -140,6 +294,12 @@ export class PedidosService {
   private async exigirEditavel(escopo: EscopoSessao, empresaId: string, id: string) {
     const p = await this.buscar(escopo, empresaId, id);
     if (!p.editavel) throw new ForbiddenException(`Pedido de ${p.empresa_nome}: só essa empresa (ou a dona do grupo) altera`);
+    return p;
+  }
+
+  private async exigirRascunho(escopo: EscopoSessao, empresaId: string, id: string) {
+    const p = await this.exigirEditavel(escopo, empresaId, id);
+    if (p.status !== 'rascunho') throw new BadRequestException(`Pedido ${p.status}: reabra para alterar`);
     return p;
   }
 

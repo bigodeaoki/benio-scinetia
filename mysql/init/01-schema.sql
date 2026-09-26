@@ -322,3 +322,45 @@ CREATE TABLE pedidos (
   FOREIGN KEY (formulacao_id) REFERENCES formulacoes(id),
   FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE SET NULL
 ) ENGINE=InnoDB;
+
+-- Formulações do pedido, em histórico: a ativa é a atual. Ao adicionar outra
+-- (ex.: o cliente não aprovou a amostra), a anterior entra em desuso aqui,
+-- sem mexer no cadastro de formulações.
+CREATE TABLE pedido_formulacoes (
+  id CHAR(36) NOT NULL PRIMARY KEY,
+  pedido_id CHAR(36) NOT NULL,
+  formulacao_id CHAR(36) NOT NULL,
+  ativa TINYINT(1) NOT NULL DEFAULT 1,
+  motivo VARCHAR(255) NULL,
+  usuario_id CHAR(36) NULL,
+  criado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  desativada_em DATETIME NULL,
+  KEY idx_pedido_formulacoes (pedido_id, ativa, criado_em),
+  FOREIGN KEY (pedido_id) REFERENCES pedidos(id) ON DELETE CASCADE,
+  FOREIGN KEY (formulacao_id) REFERENCES formulacoes(id),
+  FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE SET NULL
+) ENGINE=InnoDB;
+
+-- Envios de amostra do pedido: quantidade da formulação, embalagens usadas e
+-- valor da logística. Gasto informativo, não entra no custo do pedido.
+CREATE TABLE pedido_amostras (
+  id CHAR(36) NOT NULL PRIMARY KEY,
+  pedido_id CHAR(36) NOT NULL,
+  formulacao_id CHAR(36) NOT NULL,
+  quantidade DECIMAL(14,3) NOT NULL,
+  unidade VARCHAR(20) NOT NULL DEFAULT 'un',
+  envase_id CHAR(36) NULL,
+  embalagens INT UNSIGNED NOT NULL DEFAULT 0,
+  logistica DECIMAL(12,2) NOT NULL DEFAULT 0,
+  data_envio DATE NOT NULL,
+  observacoes VARCHAR(255) NULL,
+  usuario_id CHAR(36) NULL,
+  ativo TINYINT(1) NOT NULL DEFAULT 1,
+  criado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  atualizado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  KEY idx_pedido_amostras (pedido_id, ativo, data_envio),
+  FOREIGN KEY (pedido_id) REFERENCES pedidos(id) ON DELETE CASCADE,
+  FOREIGN KEY (formulacao_id) REFERENCES formulacoes(id),
+  FOREIGN KEY (envase_id) REFERENCES envases(id),
+  FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE SET NULL
+) ENGINE=InnoDB;
