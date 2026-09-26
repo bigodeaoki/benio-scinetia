@@ -3,12 +3,12 @@ import { useNavigate } from 'react-router-dom';
 import { ClipboardList } from 'lucide-react';
 import { SessaoContext } from '../App.jsx';
 import { api } from '../api.js';
-import { Badge, Campo, Carregando, Erro, Modal, Vazio, confirmar, fmtDataHora, toast, useDados } from '../ui.jsx';
-import { BuscaFormulacao, ETAPAS, PODE_EDITAR_PEDIDOS, STATUS, fmtNumero } from './pedidos-comum.jsx';
+import { Badge, Carregando, Erro, Vazio, confirmar, fmtDataHora, toast, useDados } from '../ui.jsx';
+import { ETAPAS, PODE_EDITAR_PEDIDOS, STATUS, fmtNumero } from './pedidos-comum.jsx';
 
 // Pedidos: entrada em etapas, salva no meio. Cada empresa cria os seus e todo
-// o grupo enxerga; altera a empresa dona, ou a dona do grupo. "Continuar"
-// abre a página do pedido, com o stepper das etapas.
+// o grupo enxerga; altera a empresa dona, ou a dona do grupo. Criar e
+// continuar abrem a página do pedido, com o stepper das etapas.
 export default function Pedidos() {
   const s = React.useContext(SessaoContext);
   const navegar = useNavigate();
@@ -17,7 +17,6 @@ export default function Pedidos() {
   const [filtroStatus, setFiltroStatus] = React.useState('');
   const consulta = ['/pedidos', [filtroEmpresa && `empresa=${filtroEmpresa}`, filtroStatus && `status=${filtroStatus}`].filter(Boolean).join('&')].filter(Boolean).join('?');
   const { dados, erro, carregando, recarregar } = useDados(() => api(consulta), [s.empresaId, filtroEmpresa, filtroStatus]);
-  const [novo, setNovo] = React.useState(false);
   const empresa = s.empresas.find((e) => e.id === s.empresaId);
   const grupo = s.empresas.length > 1;
   const nomeEmpresa = (e) => (e ? (e.matriz ? `${e.nome} (matriz)` : e.nome) : '');
@@ -52,7 +51,7 @@ export default function Pedidos() {
               {s.empresas.map((e) => <option key={e.id} value={e.id}>{nomeEmpresa(e)}</option>)}
             </select>
           )}
-          {podeEditar && <button className="botao" onClick={() => setNovo(true)}>+ Novo pedido</button>}
+          {podeEditar && <button className="botao" onClick={() => navegar('/pedidos/novo')}>+ Novo pedido</button>}
         </div>
         <div className="alerta alerta-info">
           O pedido é preenchido em {ETAPAS.length} etapas e pode ser salvo no meio: fica como <strong>rascunho</strong> na etapa em que parou.
@@ -91,72 +90,7 @@ export default function Pedidos() {
           </div>
         )}
       </div>
-      {novo && (
-        <FormNovoPedido empresas={s.empresas} empresaAtiva={s.empresaId} ehDono={s.usuario?.papel === 'owner'} nomeEmpresa={nomeEmpresa} matrizId={s.escopo?.matriz?.id}
-          aoFechar={() => setNovo(false)} aoSalvar={(p) => { setNovo(false); toast.sucesso(`Pedido ${fmtNumero(p.numero)} criado`); navegar(`/pedidos/${p.id}`); }} />
-      )}
     </>
   );
 }
 
-// Criação: cliente, empresa do pedido e formulação inicial (opcional). O resto é feito na página do pedido
-function FormNovoPedido({ empresas, empresaAtiva, ehDono, nomeEmpresa, matrizId, aoFechar, aoSalvar }) {
-  const { dados: clientes } = useDados(() => api('/clientes'), []);
-  const [f, setF] = React.useState({ cliente_id: '', formulacao: null, observacoes: '', empresa_id: empresaAtiva });
-  const [erro, setErro] = React.useState(null);
-  const [salvando, setSalvando] = React.useState(false);
-  const mudar = (campo, valor) => setF((s) => ({ ...s, [campo]: valor }));
-  const empresaDe = (c) => (c.empresa_id === matrizId ? `${c.empresa_nome} (matriz)` : c.empresa_nome);
-
-  async function salvar() {
-    setErro(null);
-    if (!f.cliente_id) return setErro('Escolha o cliente');
-    const corpo = {
-      cliente_id: f.cliente_id, observacoes: f.observacoes.trim() || undefined, empresa_id: f.empresa_id,
-      formulacao_id: f.formulacao?.id || undefined, formulacao_nome: f.formulacao?.nova ? f.formulacao.nome : undefined,
-    };
-    setSalvando(true);
-    try {
-      aoSalvar(await api('/pedidos', { method: 'POST', body: corpo }));
-    } catch (e) {
-      setErro(e.message);
-      setSalvando(false);
-    }
-  }
-
-  return (
-    <Modal titulo="Novo pedido" largura={720} onFechar={aoFechar}
-      rodape={<><button className="botao botao-secundario" onClick={aoFechar}>Cancelar</button><button className="botao" disabled={salvando} onClick={salvar}>{salvando ? 'Criando…' : 'Criar e abrir o pedido'}</button></>}
-    >
-      <Erro msg={erro} />
-      <div className="linha-campos">
-        <Campo rotulo="Cliente *" dica="Clientes ativos do grupo">
-          <select value={f.cliente_id} onChange={(e) => mudar('cliente_id', e.target.value)} autoFocus>
-            <option value="">Escolha…</option>
-            {(clientes || []).filter((c) => c.ativo).map((c) => <option key={c.id} value={c.id}>{c.razao_social}{c.nome_fantasia ? ` · ${c.nome_fantasia}` : ''} — {empresaDe(c)}</option>)}
-          </select>
-        </Campo>
-        <Campo rotulo="Empresa do pedido *" largura={240} dica={ehDono ? 'Empresa do grupo que faz o pedido' : undefined}>
-          {ehDono
-            ? <select value={f.empresa_id} onChange={(e) => mudar('empresa_id', e.target.value)}>{empresas.map((e) => <option key={e.id} value={e.id}>{nomeEmpresa(e)}</option>)}</select>
-            : <input value={nomeEmpresa(empresas.find((e) => e.id === f.empresa_id))} readOnly />}
-        </Campo>
-      </div>
-      <div className="linha-campos">
-        <Campo rotulo="Formulação inicial" dica="Digite 3 letras para buscar nesta empresa e na matriz; se não existir, crie só com o nome. Pode ficar para depois">
-          <BuscaFormulacao valor={f.formulacao} aoEscolher={(v) => mudar('formulacao', v)} />
-        </Campo>
-      </div>
-      {f.formulacao && (
-        <div className={`alerta ${f.formulacao.nova ? 'alerta-aviso' : 'alerta-info'}`}>
-          {f.formulacao.nova
-            ? <>Nova formulação <strong>{f.formulacao.nome}</strong>: será criada só com o nome nesta empresa; a farmácia completa os ingredientes depois.</>
-            : <>Formulação <strong>{f.formulacao.nome}</strong>{Number(f.formulacao.itens) === 0 ? ' (ainda sem ingredientes)' : ''}.</>}
-        </div>
-      )}
-      <div className="linha-campos">
-        <Campo rotulo="Observações"><input value={f.observacoes} onChange={(e) => mudar('observacoes', e.target.value)} /></Campo>
-      </div>
-    </Modal>
-  );
-}

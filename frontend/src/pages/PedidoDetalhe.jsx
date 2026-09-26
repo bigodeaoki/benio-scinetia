@@ -6,17 +6,19 @@ import { api } from '../api.js';
 import { Badge, Campo, Carregando, Erro, Modal, Vazio, confirmar, fmtBRL, fmtData, fmtDataHora, fmtQtd, hoje, toast, useDados } from '../ui.jsx';
 import { BuscaFormulacao, ETAPAS, PODE_EDITAR_PEDIDOS, STATUS, Stepper, fmtNumero } from './pedidos-comum.jsx';
 
-// Página do pedido: stepper com as etapas no topo. Etapa 1: histórico de
-// formulações (a nova põe a anterior em desuso) e envios de amostra.
+// Página do pedido, também para criar (/pedidos/novo): stepper com as etapas
+// no topo. Etapa 1: dados do pedido, histórico de formulações (a nova põe a
+// anterior em desuso) e envios de amostra.
 export default function PedidoDetalhe() {
   const { id } = useParams();
+  const novo = id === 'novo';
   const navegar = useNavigate();
   const s = React.useContext(SessaoContext);
-  const { dados: p, erro, carregando, recarregar } = useDados(() => api(`/pedidos/${id}`), [id, s.empresaId]);
+  const { dados: p, erro, carregando, recarregar } = useDados(() => (novo ? Promise.resolve(null) : api(`/pedidos/${id}`)), [id, s.empresaId]);
   const [vista, setVista] = React.useState(null);
-  const etapaVista = vista || p?.etapa || 1;
-  const papelEdita = PODE_EDITAR_PEDIDOS.includes(s.usuario?.papel) && !!p?.editavel;
-  const podeEditar = papelEdita && p?.status === 'rascunho';
+  const etapaVista = novo ? 1 : vista || p?.etapa || 1;
+  const papelEdita = PODE_EDITAR_PEDIDOS.includes(s.usuario?.papel) && (novo || !!p?.editavel);
+  const podeEditar = papelEdita && (novo || p?.status === 'rascunho');
   const empresaDe = (x, campo = 'empresa') => (x[`${campo}_id`] === s.escopo?.matriz?.id ? `${x[`${campo}_nome`]} (matriz)` : x[`${campo}_nome`]);
 
   // Avançar salva a etapa em que o pedido está; voltar e clicar no stepper só mudam a visão
@@ -46,36 +48,119 @@ export default function PedidoDetalhe() {
     }
   }
 
-  if (carregando && !p) return <Carregando />;
-  if (erro && !p) return <div className="cartao"><Erro msg={erro} /><button className="botao botao-secundario" onClick={() => navegar('/pedidos')}>← Pedidos</button></div>;
-  if (!p) return null;
+  if (!novo && carregando && !p) return <Carregando />;
+  if (!novo && erro && !p) return <div className="cartao"><Erro msg={erro} /><button className="botao botao-secundario" onClick={() => navegar('/pedidos')}>← Pedidos</button></div>;
+  if (!novo && !p) return null;
 
   return (
     <div className="cartao">
       <div className="cartao-cabecalho">
-        <h3><ClipboardList size={15} className="icone-cartao" />Pedido {fmtNumero(p.numero)} · {p.cliente_nome}{p.cliente_fantasia ? ` (${p.cliente_fantasia})` : ''}</h3>
-        <Badge cor={STATUS[p.status]?.[1] || 'cinza'}>{STATUS[p.status]?.[0] || p.status}</Badge>
-        <span className="texto-suave">{empresaDe(p)} · criado por {p.usuario_nome || '—'} em {fmtDataHora(p.criado_em)}</span>
+        <h3><ClipboardList size={15} className="icone-cartao" />{novo ? 'Novo pedido' : `Pedido ${fmtNumero(p.numero)} · ${p.cliente_nome}${p.cliente_fantasia ? ` (${p.cliente_fantasia})` : ''}`}</h3>
+        {!novo && <Badge cor={STATUS[p.status]?.[1] || 'cinza'}>{STATUS[p.status]?.[0] || p.status}</Badge>}
+        {!novo && <span className="texto-suave">{empresaDe(p)} · criado por {p.usuario_nome || '—'} em {fmtDataHora(p.criado_em)}</span>}
         <button className="botao botao-secundario botao-mini" onClick={() => navegar('/pedidos')}>← Pedidos</button>
-        {podeEditar && <button className="botao botao-perigo botao-mini" onClick={() => mudarStatus('cancelado')}>Cancelar pedido</button>}
-        {papelEdita && p.status === 'cancelado' && <button className="botao botao-secundario botao-mini" onClick={() => mudarStatus('rascunho')}>Reabrir</button>}
+        {!novo && podeEditar && <button className="botao botao-perigo botao-mini" onClick={() => mudarStatus('cancelado')}>Cancelar pedido</button>}
+        {!novo && papelEdita && p.status === 'cancelado' && <button className="botao botao-secundario botao-mini" onClick={() => mudarStatus('rascunho')}>Reabrir</button>}
       </div>
-      {p.observacoes && <div className="texto-suave" style={{ marginBottom: 8 }}>Observações: {p.observacoes}</div>}
-      <Stepper atual={p.etapa} vista={etapaVista} aoEscolher={setVista} />
+      <Stepper atual={novo ? 1 : p.etapa} vista={etapaVista} aoEscolher={novo ? undefined : setVista} />
       <Erro msg={erro} />
-      {!podeEditar && (
+      {novo && <div className="alerta alerta-info">Etapa 1: informe o cliente e, se já souber, a formulação inicial. Ao criar, o pedido ganha número e você segue nesta página, com o histórico de formulações e os envios de amostra.</div>}
+      {!novo && !podeEditar && (
         <div className="alerta alerta-info">
           {p.status !== 'rascunho' ? `Pedido ${STATUS[p.status]?.[0].toLowerCase()}: somente leitura.` : !p.editavel ? `Pedido de ${p.empresa_nome}: só essa empresa, ou a dona do grupo, altera.` : 'Seu papel só consulta pedidos.'}
         </div>
       )}
-      {etapaVista === 1
-        ? <Etapa1 p={p} podeEditar={podeEditar} recarregar={recarregar} empresaDe={empresaDe} />
-        : <div className="vazio">Etapa {etapaVista} · {ETAPAS[etapaVista - 1]?.nome}: conteúdo em definição.</div>}
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 18 }}>
-        <button className="botao botao-secundario" disabled={etapaVista <= 1} onClick={() => setVista(etapaVista - 1)}>← Etapa anterior</button>
-        <button className="botao" disabled={etapaVista >= ETAPAS.length} onClick={avancar} title={podeEditar ? 'Salva a etapa em que o pedido está' : undefined}>Próxima etapa →</button>
-      </div>
+      {etapaVista === 1 ? (
+        <>
+          <Cabecalho p={p} novo={novo} podeEditar={podeEditar} s={s} recarregar={recarregar}
+            aoCriar={(criado) => { toast.sucesso(`Pedido ${fmtNumero(criado.numero)} criado`); navegar(`/pedidos/${criado.id}`, { replace: true }); }} />
+          {!novo && <Etapa1 p={p} podeEditar={podeEditar} recarregar={recarregar} empresaDe={empresaDe} />}
+        </>
+      ) : <div className="vazio">Etapa {etapaVista} · {ETAPAS[etapaVista - 1]?.nome}: conteúdo em definição.</div>}
+      {!novo && (
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 18 }}>
+          <button className="botao botao-secundario" disabled={etapaVista <= 1} onClick={() => setVista(etapaVista - 1)}>← Etapa anterior</button>
+          <button className="botao" disabled={etapaVista >= ETAPAS.length} onClick={avancar} title={podeEditar ? 'Salva a etapa em que o pedido está' : undefined}>Próxima etapa →</button>
+        </div>
+      )}
     </div>
+  );
+}
+
+// Dados do pedido: cliente, empresa e observações. Na criação, também a formulação inicial
+function Cabecalho({ p, novo, podeEditar, s, aoCriar, recarregar }) {
+  const { dados: clientes } = useDados(() => api('/clientes'), []);
+  const ehDono = s.usuario?.papel === 'owner';
+  const nomeEmpresa = (e) => (e ? (e.matriz ? `${e.nome} (matriz)` : e.nome) : '');
+  const empresaDoCliente = (c) => (c.empresa_id === s.escopo?.matriz?.id ? `${c.empresa_nome} (matriz)` : c.empresa_nome);
+  const [f, setF] = React.useState({ cliente_id: p?.cliente_id || '', observacoes: p?.observacoes || '', empresa_id: p?.empresa_id || s.empresaId, formulacao: null });
+  const [erro, setErro] = React.useState(null);
+  const [salvando, setSalvando] = React.useState(false);
+  const mudar = (campo, valor) => setF((x) => ({ ...x, [campo]: valor }));
+  const alterado = novo || (p && (f.cliente_id !== p.cliente_id || (f.observacoes || '') !== (p.observacoes || '')));
+  const clientesAtivos = (clientes || []).filter((c) => c.ativo || c.id === f.cliente_id);
+
+  async function salvar() {
+    setErro(null);
+    if (!f.cliente_id) return setErro('Escolha o cliente');
+    setSalvando(true);
+    try {
+      if (novo) {
+        const criado = await api('/pedidos', { method: 'POST', body: {
+          cliente_id: f.cliente_id, observacoes: f.observacoes.trim() || undefined, empresa_id: f.empresa_id,
+          formulacao_id: f.formulacao?.id || undefined, formulacao_nome: f.formulacao?.nova ? f.formulacao.nome : undefined,
+        } });
+        aoCriar(criado);
+        return;
+      }
+      await api(`/pedidos/${p.id}`, { method: 'PUT', body: { cliente_id: f.cliente_id, observacoes: f.observacoes.trim() || undefined } });
+      recarregar();
+      toast.sucesso('Dados do pedido salvos');
+    } catch (e) {
+      setErro(e.message);
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  if (!novo && !podeEditar) return null;
+
+  return (
+    <>
+      <Titulo>Dados do pedido</Titulo>
+      <Erro msg={erro} />
+      <div className="linha-campos">
+        <Campo rotulo="Cliente *" dica="Clientes ativos do grupo">
+          <select value={f.cliente_id} onChange={(e) => mudar('cliente_id', e.target.value)} autoFocus={novo}>
+            <option value="">Escolha…</option>
+            {clientesAtivos.map((c) => <option key={c.id} value={c.id}>{c.razao_social}{c.nome_fantasia ? ` · ${c.nome_fantasia}` : ''} — {empresaDoCliente(c)}</option>)}
+          </select>
+        </Campo>
+        <Campo rotulo="Empresa do pedido *" largura={240} dica={novo && ehDono ? 'Empresa do grupo que faz o pedido' : undefined}>
+          {novo && ehDono
+            ? <select value={f.empresa_id} onChange={(e) => mudar('empresa_id', e.target.value)}>{s.empresas.map((e) => <option key={e.id} value={e.id}>{nomeEmpresa(e)}</option>)}</select>
+            : <input value={p ? p.empresa_nome : nomeEmpresa(s.empresas.find((e) => e.id === f.empresa_id))} readOnly />}
+        </Campo>
+      </div>
+      {novo && (
+        <div className="linha-campos">
+          <Campo rotulo="Formulação inicial" dica="Digite 3 letras para buscar nesta empresa e na matriz; se não existir, crie só com o nome. Pode ficar para depois">
+            <BuscaFormulacao valor={f.formulacao} aoEscolher={(v) => mudar('formulacao', v)} />
+          </Campo>
+        </div>
+      )}
+      {novo && f.formulacao && (
+        <div className={`alerta ${f.formulacao.nova ? 'alerta-aviso' : 'alerta-info'}`}>
+          {f.formulacao.nova
+            ? <>Nova formulação <strong>{f.formulacao.nome}</strong>: será criada só com o nome nesta empresa; a farmácia completa os ingredientes depois.</>
+            : <>Formulação <strong>{f.formulacao.nome}</strong>{Number(f.formulacao.itens) === 0 ? ' (ainda sem ingredientes)' : ''}.</>}
+        </div>
+      )}
+      <div className="linha-campos">
+        <Campo rotulo="Observações"><input value={f.observacoes} onChange={(e) => mudar('observacoes', e.target.value)} /></Campo>
+      </div>
+      <button className="botao" disabled={salvando || !alterado} onClick={salvar}>{novo ? (salvando ? 'Criando…' : 'Criar pedido') : (salvando ? 'Salvando…' : 'Salvar dados')}</button>
+    </>
   );
 }
 
