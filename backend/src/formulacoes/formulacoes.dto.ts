@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { ArrayMinSize, IsArray, IsNumber, IsOptional, IsPositive, IsString, IsUUID, Length, MaxLength, ValidateNested } from 'class-validator';
+import { IsArray, IsNumber, IsOptional, IsPositive, IsString, IsUUID, Length, MaxLength, ValidateNested } from 'class-validator';
 
 export class ItemFormulacaoDto {
   @IsUUID('4', { message: 'Matéria-prima inválida' })
@@ -20,7 +20,8 @@ export class FormulacaoDto {
   @IsOptional() @IsString() @MaxLength(255, { message: 'Descrição: até 255 caracteres' })
   descricao?: string;
 
-  @IsArray({ message: 'Itens devem ser uma lista' }) @ArrayMinSize(1, { message: 'Adicione ao menos uma matéria-prima' })
+  // Pode nascer só com o nome (ex.: a partir de um pedido); a farmácia completa os ingredientes depois
+  @IsOptional() @IsArray({ message: 'Itens devem ser uma lista' })
   @ValidateNested({ each: true }) @Type(() => ItemFormulacaoDto)
-  itens: ItemFormulacaoDto[];
+  itens?: ItemFormulacaoDto[];
 }

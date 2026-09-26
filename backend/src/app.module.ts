@@ -15,8 +15,9 @@ import { VeiculosModule } from './veiculos/veiculos.module';
 import { FuncionariosModule } from './funcionarios/funcionarios.module';
 import { DocumentosModule } from './documentos/documentos.module';
 import { ClientesModule } from './clientes/clientes.module';
+import { PedidosModule } from './pedidos/pedidos.module';
 
 @Module({
-  imports: [DatabaseModule, AuditoriaModule, AuthModule, AdminModule, EmpresasModule, UsuariosModule, MateriasModule, PainelModule, EstoqueModule, FormulacoesModule, EnvasesModule, MaquinasModule, VeiculosModule, FuncionariosModule, DocumentosModule, ClientesModule],
+  imports: [DatabaseModule, AuditoriaModule, AuthModule, AdminModule, EmpresasModule, UsuariosModule, MateriasModule, PainelModule, EstoqueModule, FormulacoesModule, EnvasesModule, MaquinasModule, VeiculosModule, FuncionariosModule, DocumentosModule, ClientesModule, PedidosModule],
 })
 export class AppModule {}

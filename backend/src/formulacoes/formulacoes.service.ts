@@ -16,13 +16,18 @@ const COLUNAS = (empresaId: string) => `f.id, f.nome, f.descricao, f.ativo, f.cr
 export class FormulacoesService {
   constructor(@Inject(POOL) private pool: Pool, private auditoria: AuditoriaService, private materias: MateriasService) {}
 
-  async listar(escopo: EscopoSessao, empresaId: string) {
-    this.exigirEmpresa(empresaId);
+  // Sem q: tudo que a empresa ativa pode usar (ela e a matriz). Com q (3+ caracteres): busca por nome
+  // entre as ativas, até 10, começos de nome primeiro — é o autocomplete do pedido
+  async listar(escopo: EscopoSessao, empresaId: string, q?: string) {
+    const busca = q?.trim();
+    if (q !== undefined && (!busca || busca.length < 3)) throw new BadRequestException('Busca: ao menos 3 caracteres');
+    const visiveis = this.materias.visiveis(escopo, empresaId);
     const [rows]: any = await this.pool.query(
       `SELECT ${COLUNAS(empresaId)}, (SELECT COUNT(*) FROM formulacao_itens i WHERE i.formulacao_id = f.id) AS itens
          FROM formulacoes f JOIN empresas e ON e.id = f.empresa_id
-        WHERE f.empresa_id IN (?) ORDER BY f.ativo DESC, origem, f.nome`,
-      [empresaId, this.materias.visiveis(escopo, empresaId)],
+        WHERE f.empresa_id IN (?) ${busca ? 'AND f.ativo = 1 AND f.nome LIKE ?' : ''}
+        ORDER BY ${busca ? '(f.nome LIKE ?) DESC, f.nome LIMIT 10' : 'f.ativo DESC, origem, f.nome'}`,
+      busca ? [empresaId, visiveis, `%${busca}%`, `${busca}%`] : [empresaId, visiveis],
     );
     return rows;
   }
@@ -46,7 +51,7 @@ export class FormulacoesService {
 
   async criar(escopo: EscopoSessao, empresaId: string, usuarioId: string, dto: FormulacaoDto) {
     this.exigirEmpresa(empresaId);
-    const itens = await this.validarItens(escopo, empresaId, dto.itens);
+    const itens = await this.validarItens(escopo, empresaId, dto.itens || []);
     const id = novoId();
     const conn = await this.pool.getConnection();
     try {
@@ -68,7 +73,7 @@ export class FormulacoesService {
 
   async atualizar(escopo: EscopoSessao, empresaId: string, usuarioId: string, id: string, dto: FormulacaoDto) {
     await this.exigirPropria(escopo, empresaId, id);
-    const itens = await this.validarItens(escopo, empresaId, dto.itens);
+    const itens = await this.validarItens(escopo, empresaId, dto.itens || []);
     const conn = await this.pool.getConnection();
     try {
       await conn.beginTransaction();

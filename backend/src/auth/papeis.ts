@@ -20,4 +20,5 @@ export const PERM = {
   funcionarios: ['owner', 'administrativo', 'financeiro'],           // mão de obra: leitura e escrita (custo-hora e documento são sensíveis)
   documentos: ['owner', ...PAPEIS_OPERACIONAIS],                    // documentos do grupo: qualquer papel operacional envia
   clientes: ['owner', 'vendas', 'administrativo', 'financeiro'],      // clientes de cada empresa; o grupo inteiro lê
+  pedidos: ['owner', 'vendas', 'administrativo'],                      // entrada de pedidos (em etapas); o grupo inteiro lê
 };

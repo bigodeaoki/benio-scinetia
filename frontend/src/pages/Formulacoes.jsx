@@ -68,7 +68,7 @@ export default function Formulacoes() {
                       </td>
                       <td className="negrito">{f.nome}</td>
                       {ehFilial && <td><Badge cor={f.origem === 'matriz' ? 'azul' : 'cinza'}>{f.origem === 'matriz' ? 'Matriz' : 'Própria'}</Badge></td>}
-                      <td className="num">{f.itens}</td>
+                      <td className="num">{Number(f.itens) === 0 ? <Badge cor="amarelo">sem ingredientes</Badge> : f.itens}</td>
                       <td className="texto-suave">{f.descricao || '—'}</td>
                       <td><Badge cor={f.ativo ? 'verde' : 'cinza'}>{f.ativo ? 'Ativa' : 'Inativa'}</Badge></td>
                       <td>{fmtDataHora(f.atualizado_em)}</td>

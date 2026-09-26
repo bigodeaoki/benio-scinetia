@@ -296,3 +296,29 @@ CREATE TABLE cliente_responsaveis (
   PRIMARY KEY (cliente_id, ordem),
   FOREIGN KEY (cliente_id) REFERENCES clientes(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
+
+-- Pedidos: entrada em etapas, salva no meio (status + etapa onde parou).
+-- Etapa 1: cliente do grupo e formulação (pode nascer só com o nome; a
+-- farmácia completa os ingredientes depois). Número sequencial por empresa.
+-- Cancelar é status, nunca exclusão.
+CREATE TABLE pedidos (
+  id CHAR(36) NOT NULL PRIMARY KEY,
+  matriz_id CHAR(36) NOT NULL,
+  empresa_id CHAR(36) NOT NULL,
+  numero INT NOT NULL,
+  cliente_id CHAR(36) NOT NULL,
+  formulacao_id CHAR(36) NULL,
+  status ENUM('rascunho','concluido','cancelado') NOT NULL DEFAULT 'rascunho',
+  etapa TINYINT NOT NULL DEFAULT 1,
+  observacoes VARCHAR(255) NULL,
+  usuario_id CHAR(36) NULL,
+  criado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  atualizado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_pedido_numero (empresa_id, numero),
+  KEY idx_pedidos_grupo (matriz_id, status, criado_em),
+  FOREIGN KEY (matriz_id) REFERENCES empresas(id) ON DELETE CASCADE,
+  FOREIGN KEY (empresa_id) REFERENCES empresas(id) ON DELETE CASCADE,
+  FOREIGN KEY (cliente_id) REFERENCES clientes(id),
+  FOREIGN KEY (formulacao_id) REFERENCES formulacoes(id),
+  FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE SET NULL
+) ENGINE=InnoDB;

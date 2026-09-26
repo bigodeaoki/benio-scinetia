@@ -48,6 +48,7 @@ backend/src
   funcionarios/ mão de obra de cada empresa (nome, documento, e-mail, categoria livre, custo R$/h, admissão, status de RH); só dono, administrativo e financeiro leem e escrevem; a dona lista o grupo inteiro, com filtro por empresa
   documentos/  documentos do grupo (arquivo no banco, até 10 MB); status de download da matriz e das filiais, marcados no primeiro download de cada lado
   clientes/    clientes de cada empresa (dados, endereço, contatos, responsáveis, CNPJ validado); o grupo inteiro lê, a empresa dona altera
+  pedidos/     entrada de pedidos em etapas, salva no meio (status + etapa); etapa 1: cliente e formulação, com busca por nome e criação da fórmula só pelo nome
   estoque/     entradas de compra por empresa, de matéria-prima ou de item de envase (um dos dois), com resumo por item e unidade
   painel/      resumo da tela inicial por visão
   auditoria/   trilha de auditoria (global)
@@ -56,7 +57,7 @@ backend/src
 frontend/src
   App.jsx      rota pública (entrar) e a área logada
   Shell.jsx    menu por visão, seletor de empresa, cabeçalho
-  pages/       Dashboard, Clientes, Matérias-primas, Envase, Formulações, Maquinário, Logística, Mão de obra, Estoque, Documentos, Filiais, Usuários, admin/Empresas, admin/Usuários, Login
+  pages/       Dashboard, Pedidos, Clientes, Matérias-primas, Envase, Formulações, Maquinário, Logística, Mão de obra, Estoque, Documentos, Filiais, Usuários, admin/Empresas, admin/Usuários, Login
 mysql/init     schema inicial (só roda em volume novo)
 mysql/migrations  scripts idempotentes, aplicados em produção antes do deploy
 ```

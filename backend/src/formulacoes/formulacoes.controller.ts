@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Param, ParseUUIDPipe, Post, Put } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, ParseUUIDPipe, Post, Put, Query } from '@nestjs/common';
 import { EmpresaId, Escopo, EscopoSessao, Papeis, UsuarioAtual } from '../auth/decorators';
 import { PERM } from '../auth/papeis';
 import { AtivoDto } from '../shared/dto';
@@ -12,8 +12,9 @@ export class FormulacoesController {
   constructor(private service: FormulacoesService) {}
 
   @Get()
-  listar(@Escopo() escopo: EscopoSessao, @EmpresaId() empresaId: string) {
-    return this.service.listar(escopo, empresaId);
+  // ?q=<texto> (3+ caracteres) busca por nome, para o autocomplete do pedido
+  listar(@Escopo() escopo: EscopoSessao, @EmpresaId() empresaId: string, @Query('q') q?: string) {
+    return this.service.listar(escopo, empresaId, q);
   }
 
   @Get(':id')
