@@ -177,3 +177,28 @@ CREATE TABLE maquinas (
   CONSTRAINT ck_maquina_rendimento CHECK (rendimento_pct > 0 AND rendimento_pct <= 100),
   FOREIGN KEY (empresa_id) REFERENCES empresas(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
+
+-- Logística: veículos de cada empresa (caminhão, carro, van ou qualquer meio
+-- de transporte; o tipo é texto livre). Bem físico como o maquinário: a
+-- filial não enxerga os da matriz. Custo por hora em R$; status operacional
+-- separado do `ativo` (que é a exclusão lógica).
+CREATE TABLE veiculos (
+  id CHAR(36) NOT NULL PRIMARY KEY,
+  empresa_id CHAR(36) NOT NULL,
+  tipo VARCHAR(40) NOT NULL,
+  marca VARCHAR(80) NULL,
+  modelo VARCHAR(100) NULL,
+  ano SMALLINT NULL,
+  placa VARCHAR(10) NULL,
+  custo_hora DECIMAL(12,2) NOT NULL DEFAULT 0,
+  status ENUM('disponivel','em_uso','manutencao') NOT NULL DEFAULT 'disponivel',
+  ultima_manutencao DATE NULL,
+  ativo TINYINT(1) NOT NULL DEFAULT 1,
+  criado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  atualizado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_veiculo_placa (empresa_id, placa),
+  KEY idx_veiculos_empresa (empresa_id, tipo),
+  CONSTRAINT ck_veiculo_custo CHECK (custo_hora >= 0),
+  CONSTRAINT ck_veiculo_ano CHECK (ano IS NULL OR ano BETWEEN 1900 AND 2100),
+  FOREIGN KEY (empresa_id) REFERENCES empresas(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
