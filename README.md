@@ -41,8 +41,8 @@ backend/src
   admin/       visão global: empresas (matriz + dono) e usuários de qualquer empresa
   empresas/    empresas do escopo; filiais (só o dono)
   usuarios/    usuários operacionais do grupo (só o dono)
-  materias/    matérias-primas da empresa ativa; a filial enxerga também as da matriz (só a dona altera a sua)
-  envases/     itens de envase (frascos, tampas, rótulos, caixas) da empresa ativa; sem quantidade, o estoque controla; mesma visibilidade das matérias-primas
+  materias/    matérias-primas da empresa ativa; a filial enxerga também as da matriz (só a dona altera a sua); na tela de cadastro a dona vê o grupo inteiro, com filtro por empresa
+  envases/     itens de envase (frascos, tampas, rótulos, caixas) da empresa ativa; sem quantidade, o estoque controla; mesma visibilidade das matérias-primas; na tela de cadastro a dona vê o grupo inteiro, com filtro por empresa
   maquinas/    maquinário de cada empresa (título, modelo, custo R$/h, rendimento %); bem físico, não é compartilhado com filiais; a dona lista o grupo inteiro, com filtro por empresa
   veiculos/    logística: veículos de cada empresa (tipo livre, marca, modelo, ano, placa, custo R$/h, status, última manutenção); bem físico como o maquinário; a dona lista o grupo inteiro, com filtro por empresa
   funcionarios/ mão de obra de cada empresa (nome, documento, e-mail, categoria livre, custo R$/h, admissão, status de RH); só dono, administrativo e financeiro leem e escrevem; a dona lista o grupo inteiro, com filtro por empresa

@@ -52,7 +52,8 @@ export class AuthGuard implements CanActivate {
       escopo = { papel: u.papel, matrizId, empresaIds };
     }
 
-    const pedida = String(req.headers['x-empresa-id'] || req.query.empresa || '') || null;
+    // Empresa ativa só pelo cabeçalho: ?empresa= na URL é filtro de listagem, não troca de escopo
+    const pedida = String(req.headers['x-empresa-id'] || '') || null;
     if (pedida) {
       if (escopo.empresaIds) {
         if (!escopo.empresaIds.includes(pedida)) throw new ForbiddenException('Sem acesso a esta empresa');

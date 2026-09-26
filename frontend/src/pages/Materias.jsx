@@ -4,16 +4,21 @@ import { SessaoContext } from '../App.jsx';
 import { api } from '../api.js';
 import { Badge, Campo, Carregando, Erro, Modal, Vazio, confirmar, fmtDataHora, toast, useDados } from '../ui.jsx';
 
-const PODE_EDITAR = ['admin', 'compras', 'producao', 'administrativo'];
+const PODE_EDITAR = ['owner', 'compras', 'producao', 'administrativo'];
 
 export default function Materias() {
   const s = React.useContext(SessaoContext);
   const podeEditar = PODE_EDITAR.includes(s.usuario?.papel);
-  // Recarrega quando a empresa ativa muda: a lista é por empresa
-  const { dados, erro, carregando, recarregar } = useDados(() => api('/materias'), [s.empresaId]);
+  // Tela de cadastro: a dona vê o grupo inteiro (com filtro por empresa); os demais, a sua empresa e a matriz
+  const [filtroEmpresa, setFiltroEmpresa] = React.useState('');
+  const { dados, erro, carregando, recarregar } = useDados(() => api(filtroEmpresa ? `/materias?empresa=${filtroEmpresa}` : '/materias?grupo=1'), [s.empresaId, filtroEmpresa]);
   const [editando, setEditando] = React.useState(null);
   const empresa = s.empresas.find((e) => e.id === s.empresaId);
   const ehFilial = !!empresa?.filial;
+  const grupo = s.empresas.length > 1;
+  const nomeEmpresa = (e) => (e ? (e.matriz ? `${e.nome} (matriz)` : e.nome) : '');
+  const empresaDe = (x) => (x.empresa_id === s.escopo?.matriz?.id ? `${x.empresa_nome} (matriz)` : x.empresa_nome);
+  const tituloEscopo = grupo ? `do grupo ${s.escopo?.matriz?.nome || ''}` : `de ${nomeEmpresa(empresa)}`;
 
   async function alterarAtivo(m, ativo) {
     const ok = await confirmar({
@@ -36,7 +41,13 @@ export default function Materias() {
     <>
       <div className="cartao">
         <div className="cartao-cabecalho">
-          <h3><Package size={15} className="icone-cartao" />Matérias-primas de {empresa ? (empresa.matriz ? `${empresa.nome} (matriz)` : empresa.nome) : ""}</h3>
+          <h3><Package size={15} className="icone-cartao" />Matérias-primas {tituloEscopo}</h3>
+          {grupo && (
+            <select value={filtroEmpresa} onChange={(e) => setFiltroEmpresa(e.target.value)} style={{ width: 'auto', minWidth: 220 }} title="Filtrar por empresa">
+              <option value="">Todas as empresas</option>
+              {s.empresas.map((e) => <option key={e.id} value={e.id}>{nomeEmpresa(e)}</option>)}
+            </select>
+          )}
           {podeEditar && <button className="botao" onClick={() => setEditando({ novo: true })}>+ Nova matéria-prima</button>}
         </div>
         {ehFilial && (
@@ -45,17 +56,17 @@ export default function Materias() {
           </div>
         )}
         <Erro msg={erro} />
-        {carregando ? <Carregando /> : !dados?.length ? <Vazio msg="Nenhuma matéria-prima cadastrada nesta empresa" /> : (
+        {carregando ? <Carregando /> : !dados?.length ? <Vazio msg="Nenhuma matéria-prima cadastrada" /> : (
           <div className="tabela-envolucro">
             <table className="tabela">
               <thead>
-                <tr><th>Nome</th>{ehFilial && <th>Origem</th>}<th>Unidade</th><th>Descrição</th><th>Status</th><th>Criada em</th><th>Atualizada em</th>{podeEditar && <th className="acoes">Ações</th>}</tr>
+                <tr><th>Nome</th><th>Empresa</th><th>Unidade</th><th>Descrição</th><th>Status</th><th>Criada em</th><th>Atualizada em</th>{podeEditar && <th className="acoes">Ações</th>}</tr>
               </thead>
               <tbody>
                 {dados.map((m) => (
                   <tr key={m.id} style={m.ativo ? undefined : { opacity: 0.55 }}>
                     <td className="negrito">{m.nome}</td>
-                    {ehFilial && <td><Badge cor={m.origem === 'matriz' ? 'azul' : 'cinza'}>{m.origem === 'matriz' ? 'Matriz' : 'Própria'}</Badge></td>}
+                    <td>{empresaDe(m)}</td>
                     <td>{m.unidade}</td>
                     <td className="texto-suave">{m.descricao || '—'}</td>
                     <td><Badge cor={m.ativo ? 'verde' : 'cinza'}>{m.ativo ? 'Ativa' : 'Inativa'}</Badge></td>

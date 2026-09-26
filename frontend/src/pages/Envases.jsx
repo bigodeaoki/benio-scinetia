@@ -11,10 +11,16 @@ const PODE_EDITAR = ['owner', 'compras', 'producao', 'administrativo'];
 export default function Envases() {
   const s = React.useContext(SessaoContext);
   const podeEditar = PODE_EDITAR.includes(s.usuario?.papel);
-  const { dados, erro, carregando, recarregar } = useDados(() => api('/envases'), [s.empresaId]);
+  // Tela de cadastro: a dona vê o grupo inteiro (com filtro por empresa); os demais, a sua empresa e a matriz
+  const [filtroEmpresa, setFiltroEmpresa] = React.useState('');
+  const { dados, erro, carregando, recarregar } = useDados(() => api(filtroEmpresa ? `/envases?empresa=${filtroEmpresa}` : '/envases?grupo=1'), [s.empresaId, filtroEmpresa]);
   const [editando, setEditando] = React.useState(null);
   const empresa = s.empresas.find((e) => e.id === s.empresaId);
   const ehFilial = !!empresa?.filial;
+  const grupo = s.empresas.length > 1;
+  const nomeEmpresa = (e) => (e ? (e.matriz ? `${e.nome} (matriz)` : e.nome) : '');
+  const empresaDe = (x) => (x.empresa_id === s.escopo?.matriz?.id ? `${x.empresa_nome} (matriz)` : x.empresa_nome);
+  const tituloEscopo = grupo ? `do grupo ${s.escopo?.matriz?.nome || ''}` : `de ${nomeEmpresa(empresa)}`;
 
   async function alterarAtivo(v, ativo) {
     const ok = await confirmar({ titulo: ativo ? 'Reativar item' : 'Inativar item', mensagem: ativo ? `Reativar ${v.nome}?` : `Inativar ${v.nome}? Ele some das escolhas, mas o histórico fica.`, confirmarTexto: ativo ? 'Reativar' : 'Inativar', perigo: !ativo });
@@ -32,7 +38,13 @@ export default function Envases() {
     <>
       <div className="cartao">
         <div className="cartao-cabecalho">
-          <h3><Box size={15} className="icone-cartao" />Itens de envase de {empresa ? (empresa.matriz ? `${empresa.nome} (matriz)` : empresa.nome) : ''}</h3>
+          <h3><Box size={15} className="icone-cartao" />Itens de envase {tituloEscopo}</h3>
+          {grupo && (
+            <select value={filtroEmpresa} onChange={(e) => setFiltroEmpresa(e.target.value)} style={{ width: 'auto', minWidth: 220 }} title="Filtrar por empresa">
+              <option value="">Todas as empresas</option>
+              {s.empresas.map((e) => <option key={e.id} value={e.id}>{nomeEmpresa(e)}</option>)}
+            </select>
+          )}
           {podeEditar && <button className="botao" onClick={() => setEditando({ novo: true })}>+ Novo item</button>}
         </div>
         <div className="alerta alerta-info">
@@ -44,13 +56,13 @@ export default function Envases() {
           <div className="tabela-envolucro">
             <table className="tabela">
               <thead>
-                <tr><th>Item</th>{ehFilial && <th>Origem</th>}<th>Descrição</th><th>Status</th><th>Criado em</th><th>Atualizado em</th>{podeEditar && <th className="acoes">Ações</th>}</tr>
+                <tr><th>Item</th><th>Empresa</th><th>Descrição</th><th>Status</th><th>Criado em</th><th>Atualizado em</th>{podeEditar && <th className="acoes">Ações</th>}</tr>
               </thead>
               <tbody>
                 {dados.map((v) => (
                   <tr key={v.id} style={v.ativo ? undefined : { opacity: 0.55 }}>
                     <td className="negrito">{v.nome}</td>
-                    {ehFilial && <td><Badge cor={v.origem === 'matriz' ? 'azul' : 'cinza'}>{v.origem === 'matriz' ? 'Matriz' : 'Próprio'}</Badge></td>}
+                    <td>{empresaDe(v)}</td>
                     <td className="texto-suave">{v.descricao || '—'}</td>
                     <td><Badge cor={v.ativo ? 'verde' : 'cinza'}>{v.ativo ? 'Ativo' : 'Inativo'}</Badge></td>
                     <td>{fmtDataHora(v.criado_em)}</td>
