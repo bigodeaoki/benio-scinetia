@@ -4,7 +4,7 @@ server {
   server_name _;
   root /usr/share/nginx/html;
   index index.html;
-  client_max_body_size 8m;
+  client_max_body_size 12m;   # upload de documentos: 10 MB no backend + margem do multipart
 
   # __RESOLVER__ é trocado pelo DNS do ambiente no start (30-resolver.sh);
   # com proxy_pass em variável, o nginx re-resolve o backend a cada requisição —

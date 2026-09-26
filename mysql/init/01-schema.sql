@@ -226,3 +226,31 @@ CREATE TABLE funcionarios (
   CONSTRAINT ck_funcionario_custo CHECK (custo_hora >= 0),
   FOREIGN KEY (empresa_id) REFERENCES empresas(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
+
+-- Documentos do grupo: qualquer usuário sobe um arquivo (guardado no banco,
+-- até 10 MB) e todo o grupo enxerga. Dois status de download: viram
+-- verdadeiros quando alguém da matriz, ou de alguma filial, baixa o arquivo
+-- (a data guardada é a do primeiro download de cada lado).
+CREATE TABLE documentos (
+  id CHAR(36) NOT NULL PRIMARY KEY,
+  matriz_id CHAR(36) NOT NULL,
+  empresa_id CHAR(36) NOT NULL,
+  usuario_id CHAR(36) NULL,
+  titulo VARCHAR(150) NOT NULL,
+  descricao VARCHAR(255) NULL,
+  nome_arquivo VARCHAR(255) NOT NULL,
+  mime VARCHAR(120) NOT NULL,
+  tamanho INT UNSIGNED NOT NULL,
+  conteudo LONGBLOB NOT NULL,
+  baixado_matriz TINYINT(1) NOT NULL DEFAULT 0,
+  baixado_matriz_em DATETIME NULL,
+  baixado_filial TINYINT(1) NOT NULL DEFAULT 0,
+  baixado_filial_em DATETIME NULL,
+  ativo TINYINT(1) NOT NULL DEFAULT 1,
+  criado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  atualizado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  KEY idx_documentos_grupo (matriz_id, ativo, criado_em),
+  FOREIGN KEY (matriz_id) REFERENCES empresas(id) ON DELETE CASCADE,
+  FOREIGN KEY (empresa_id) REFERENCES empresas(id) ON DELETE CASCADE,
+  FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE SET NULL
+) ENGINE=InnoDB;

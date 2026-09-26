@@ -46,6 +46,7 @@ backend/src
   maquinas/    maquinário de cada empresa (título, modelo, custo R$/h, rendimento %); bem físico, não é compartilhado com filiais; a dona lista o grupo inteiro, com filtro por empresa
   veiculos/    logística: veículos de cada empresa (tipo livre, marca, modelo, ano, placa, custo R$/h, status, última manutenção); bem físico como o maquinário; a dona lista o grupo inteiro, com filtro por empresa
   funcionarios/ mão de obra de cada empresa (nome, documento, e-mail, categoria livre, custo R$/h, admissão, status de RH); só dono, administrativo e financeiro leem e escrevem; a dona lista o grupo inteiro, com filtro por empresa
+  documentos/  documentos do grupo (arquivo no banco, até 10 MB); status de download da matriz e das filiais, marcados no primeiro download de cada lado
   estoque/     entradas de compra por empresa, de matéria-prima ou de item de envase (um dos dois), com resumo por item e unidade
   painel/      resumo da tela inicial por visão
   auditoria/   trilha de auditoria (global)
@@ -54,7 +55,7 @@ backend/src
 frontend/src
   App.jsx      rota pública (entrar) e a área logada
   Shell.jsx    menu por visão, seletor de empresa, cabeçalho
-  pages/       Dashboard, Matérias-primas, Envase, Formulações, Maquinário, Logística, Mão de obra, Estoque, Filiais, Usuários, admin/Empresas, admin/Usuários, Login
+  pages/       Dashboard, Matérias-primas, Envase, Formulações, Maquinário, Logística, Mão de obra, Estoque, Documentos, Filiais, Usuários, admin/Empresas, admin/Usuários, Login
 mysql/init     schema inicial (só roda em volume novo)
 mysql/migrations  scripts idempotentes, aplicados em produção antes do deploy
 ```

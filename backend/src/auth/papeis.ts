@@ -18,4 +18,5 @@ export const PERM = {
   maquinas: ['owner', 'producao', 'administrativo', 'financeiro'], // maquinário e custo-hora
   veiculos: ['owner', 'administrativo', 'financeiro'],               // logística: veículos e custo-hora
   funcionarios: ['owner', 'administrativo', 'financeiro'],           // mão de obra: leitura e escrita (custo-hora e documento são sensíveis)
+  documentos: ['owner', ...PAPEIS_OPERACIONAIS],                    // documentos do grupo: qualquer papel operacional envia
 };

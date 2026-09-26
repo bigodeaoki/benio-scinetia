@@ -24,20 +24,45 @@ export function limparSessao() {
   localStorage.removeItem(CHAVE_EMPRESA);
 }
 
-export async function api(path, { method = 'GET', body } = {}) {
-  const headers = { 'Content-Type': 'application/json' };
+function cabecalhos(json) {
+  const headers = json ? { 'Content-Type': 'application/json' } : {};
   if (sessao.token) headers.Authorization = `Bearer ${sessao.token}`;
   if (sessao.empresaId) headers['X-Empresa-Id'] = String(sessao.empresaId);
-  const resp = await fetch(`/api${path}`, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined });
+  return headers;
+}
+
+// Sessão expirada derruba o app para a tela de entrada; outros erros viram Error com a mensagem da API
+async function tratar(resp) {
   if (resp.status === 401 && sessao.token) {
     limparSessao();
     window.dispatchEvent(new Event('scientia:logout'));
     throw new Error('Sessão expirada — entre de novo');
   }
-  const dados = await resp.json().catch(() => null);
   if (!resp.ok) {
+    const dados = await resp.json().catch(() => null);
     const msg = Array.isArray(dados?.message) ? dados.message.join('; ') : dados?.message;
     throw new Error(msg || `Erro ${resp.status}`);
   }
-  return dados;
+  return resp;
+}
+
+export async function api(path, { method = 'GET', body } = {}) {
+  const resp = await tratar(await fetch(`/api${path}`, { method, headers: cabecalhos(true), body: body !== undefined ? JSON.stringify(body) : undefined }));
+  return resp.json().catch(() => null);
+}
+
+// Envio multipart (arquivos): o navegador define o Content-Type com o boundary
+export async function apiEnviar(path, formData) {
+  const resp = await tratar(await fetch(`/api${path}`, { method: 'POST', headers: cabecalhos(false), body: formData }));
+  return resp.json().catch(() => null);
+}
+
+// Download autenticado: devolve o blob e o nome vindo do Content-Disposition
+export async function apiBaixar(path) {
+  const resp = await tratar(await fetch(`/api${path}`, { headers: cabecalhos(false) }));
+  const disp = resp.headers.get('content-disposition') || '';
+  const utf8 = disp.match(/filename\*=UTF-8''([^;]+)/i);
+  const simples = disp.match(/filename="?([^";]+)"?/i);
+  const nome = utf8 ? decodeURIComponent(utf8[1]) : simples ? simples[1] : null;
+  return { blob: await resp.blob(), nome };
 }
