@@ -43,9 +43,9 @@ backend/src
   usuarios/    usuários operacionais do grupo (só o dono)
   materias/    matérias-primas da empresa ativa; a filial enxerga também as da matriz (só a dona altera a sua)
   envases/     itens de envase (frascos, tampas, rótulos, caixas) da empresa ativa; sem quantidade, o estoque controla; mesma visibilidade das matérias-primas
-  maquinas/    maquinário de cada empresa (título, modelo, custo R$/h, rendimento %); bem físico, não é compartilhado com filiais
-  veiculos/    logística: veículos de cada empresa (tipo livre, marca, modelo, ano, placa, custo R$/h, status, última manutenção); bem físico como o maquinário
-  funcionarios/ mão de obra de cada empresa (nome, documento, e-mail, categoria livre, custo R$/h, admissão, status de RH); só dono, administrativo e financeiro leem e escrevem
+  maquinas/    maquinário de cada empresa (título, modelo, custo R$/h, rendimento %); bem físico, não é compartilhado com filiais; a dona lista o grupo inteiro, com filtro por empresa
+  veiculos/    logística: veículos de cada empresa (tipo livre, marca, modelo, ano, placa, custo R$/h, status, última manutenção); bem físico como o maquinário; a dona lista o grupo inteiro, com filtro por empresa
+  funcionarios/ mão de obra de cada empresa (nome, documento, e-mail, categoria livre, custo R$/h, admissão, status de RH); só dono, administrativo e financeiro leem e escrevem; a dona lista o grupo inteiro, com filtro por empresa
   estoque/     entradas de compra por empresa, de matéria-prima ou de item de envase (um dos dois), com resumo por item e unidade
   painel/      resumo da tela inicial por visão
   auditoria/   trilha de auditoria (global)

@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Param, ParseUUIDPipe, Post, Put } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, ParseUUIDPipe, Post, Put, Query } from '@nestjs/common';
 import { EmpresaId, Escopo, EscopoSessao, Papeis, UsuarioAtual } from '../auth/decorators';
 import { PERM } from '../auth/papeis';
 import { AtivoDto } from '../shared/dto';
@@ -12,13 +12,14 @@ export class VeiculosController {
   constructor(private service: VeiculosService) {}
 
   @Get()
-  listar(@EmpresaId() empresaId: string) {
-    return this.service.listar(empresaId);
+  // ?empresa=<uuid> filtra por uma empresa do escopo
+  listar(@Escopo() escopo: EscopoSessao, @EmpresaId() empresaId: string, @Query('empresa') empresa?: string) {
+    return this.service.listar(escopo, empresaId, empresa || undefined);
   }
 
   @Get(':id')
-  ver(@EmpresaId() empresaId: string, @Param('id', Uuid()) id: string) {
-    return this.service.buscar(empresaId, id);
+  ver(@Escopo() escopo: EscopoSessao, @EmpresaId() empresaId: string, @Param('id', Uuid()) id: string) {
+    return this.service.buscar(escopo, empresaId, id);
   }
 
   @Papeis(...PERM.veiculos)

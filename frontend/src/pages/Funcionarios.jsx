@@ -16,10 +16,13 @@ const fmtDoc = (d) => (d && /^\d{11}$/.test(d) ? d.replace(/(\d{3})(\d{3})(\d{3}
 export default function Funcionarios() {
   const s = React.useContext(SessaoContext);
   const podeEditar = PODE_VER_FUNCIONARIOS.includes(s.usuario?.papel);
-  const { dados, erro, carregando, recarregar } = useDados(() => api('/funcionarios'), [s.empresaId]);
+  const [filtroEmpresa, setFiltroEmpresa] = React.useState('');
+  const { dados, erro, carregando, recarregar } = useDados(() => api('/funcionarios' + (filtroEmpresa ? `?empresa=${filtroEmpresa}` : '')), [s.empresaId, filtroEmpresa]);
   const [editando, setEditando] = React.useState(null);
   const empresa = s.empresas.find((e) => e.id === s.empresaId);
   const nomeEmpresa = (e) => (e ? (e.matriz ? `${e.nome} (matriz)` : e.nome) : '');
+  const grupo = s.empresas.length > 1;
+  const tituloEscopo = grupo ? `do grupo ${s.escopo?.matriz?.nome || ''}` : `de ${nomeEmpresa(empresa)}`;
 
   async function alterarAtivo(f, ativo) {
     const ok = await confirmar({ titulo: ativo ? 'Reativar registro' : 'Inativar registro', mensagem: ativo ? `Reativar o registro de ${f.nome}?` : `Inativar o registro de ${f.nome}? Ele some das escolhas, mas o histórico fica. Para desligamento, use o status.`, confirmarTexto: ativo ? 'Reativar' : 'Inativar', perigo: !ativo });
@@ -36,14 +39,20 @@ export default function Funcionarios() {
   function salvo(f) {
     setEditando(null);
     recarregar();
-    toast.sucesso(f.empresa_id === s.empresaId ? 'Funcionário salvo' : `Funcionário salvo em ${f.empresa_nome}: troque a empresa ativa para vê-lo`);
+    toast.sucesso('Funcionário salvo');
   }
 
   return (
     <>
       <div className="cartao">
         <div className="cartao-cabecalho">
-          <h3><HardHat size={15} className="icone-cartao" />Mão de obra de {nomeEmpresa(empresa)}</h3>
+          <h3><HardHat size={15} className="icone-cartao" />Mão de obra {tituloEscopo}</h3>
+          {grupo && (
+            <select value={filtroEmpresa} onChange={(e) => setFiltroEmpresa(e.target.value)} style={{ width: 'auto', minWidth: 220 }} title="Filtrar por empresa">
+              <option value="">Todas as empresas</option>
+              {s.empresas.map((e) => <option key={e.id} value={e.id}>{nomeEmpresa(e)}</option>)}
+            </select>
+          )}
           {podeEditar && <button className="botao" onClick={() => setEditando({ novo: true })}>+ Novo funcionário</button>}
         </div>
         <div className="alerta alerta-info">
@@ -55,12 +64,13 @@ export default function Funcionarios() {
           <div className="tabela-envolucro">
             <table className="tabela">
               <thead>
-                <tr><th>Nome</th><th>Documento</th><th>E-mail</th><th>Categoria</th><th className="num">Custo/hora</th><th>Admissão</th><th>Status</th><th>Criado em</th>{podeEditar && <th className="acoes">Ações</th>}</tr>
+                <tr><th>Nome</th><th>Empresa</th><th>Documento</th><th>E-mail</th><th>Categoria</th><th className="num">Custo/hora</th><th>Admissão</th><th>Status</th><th>Criado em</th>{podeEditar && <th className="acoes">Ações</th>}</tr>
               </thead>
               <tbody>
                 {dados.map((f) => (
                   <tr key={f.id} style={f.ativo ? undefined : { opacity: 0.55 }}>
                     <td className="negrito">{f.nome}</td>
+                    <td>{nomeEmpresa(s.empresas.find((x) => x.id === f.empresa_id)) || f.empresa_nome}</td>
                     <td className="mono">{fmtDoc(f.documento)}</td>
                     <td>{f.email || '—'}</td>
                     <td>{f.categoria}</td>

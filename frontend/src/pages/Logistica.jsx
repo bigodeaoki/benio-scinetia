@@ -14,10 +14,13 @@ const nomeVeiculo = (v) => [v.tipo, v.marca, v.modelo, v.ano].filter(Boolean).jo
 export default function Logistica() {
   const s = React.useContext(SessaoContext);
   const podeEditar = PODE_EDITAR.includes(s.usuario?.papel);
-  const { dados, erro, carregando, recarregar } = useDados(() => api('/veiculos'), [s.empresaId]);
+  const [filtroEmpresa, setFiltroEmpresa] = React.useState('');
+  const { dados, erro, carregando, recarregar } = useDados(() => api('/veiculos' + (filtroEmpresa ? `?empresa=${filtroEmpresa}` : '')), [s.empresaId, filtroEmpresa]);
   const [editando, setEditando] = React.useState(null);
   const empresa = s.empresas.find((e) => e.id === s.empresaId);
   const nomeEmpresa = (e) => (e ? (e.matriz ? `${e.nome} (matriz)` : e.nome) : '');
+  const grupo = s.empresas.length > 1;
+  const tituloEscopo = grupo ? `do grupo ${s.escopo?.matriz?.nome || ''}` : `de ${nomeEmpresa(empresa)}`;
 
   async function alterarAtivo(v, ativo) {
     const ok = await confirmar({ titulo: ativo ? 'Reativar veículo' : 'Inativar veículo', mensagem: ativo ? `Reativar ${nomeVeiculo(v)}?` : `Inativar ${nomeVeiculo(v)}? Ele some das escolhas, mas o histórico fica.`, confirmarTexto: ativo ? 'Reativar' : 'Inativar', perigo: !ativo });
@@ -34,14 +37,20 @@ export default function Logistica() {
   function salvo(v) {
     setEditando(null);
     recarregar();
-    toast.sucesso(v.empresa_id === s.empresaId ? 'Veículo salvo' : `Veículo salvo em ${v.empresa_nome}: troque a empresa ativa para vê-lo`);
+    toast.sucesso('Veículo salvo');
   }
 
   return (
     <>
       <div className="cartao">
         <div className="cartao-cabecalho">
-          <h3><Truck size={15} className="icone-cartao" />Logística de {nomeEmpresa(empresa)}</h3>
+          <h3><Truck size={15} className="icone-cartao" />Logística {tituloEscopo}</h3>
+          {grupo && (
+            <select value={filtroEmpresa} onChange={(e) => setFiltroEmpresa(e.target.value)} style={{ width: 'auto', minWidth: 220 }} title="Filtrar por empresa">
+              <option value="">Todas as empresas</option>
+              {s.empresas.map((e) => <option key={e.id} value={e.id}>{nomeEmpresa(e)}</option>)}
+            </select>
+          )}
           {podeEditar && <button className="botao" onClick={() => setEditando({ novo: true })}>+ Novo veículo</button>}
         </div>
         <div className="alerta alerta-info">
@@ -53,12 +62,13 @@ export default function Logistica() {
           <div className="tabela-envolucro">
             <table className="tabela">
               <thead>
-                <tr><th>Tipo</th><th>Marca / modelo</th><th className="num">Ano</th><th>Placa</th><th className="num">Custo/hora</th><th>Status</th><th>Última manutenção</th><th>Criado em</th>{podeEditar && <th className="acoes">Ações</th>}</tr>
+                <tr><th>Tipo</th><th>Empresa</th><th>Marca / modelo</th><th className="num">Ano</th><th>Placa</th><th className="num">Custo/hora</th><th>Status</th><th>Última manutenção</th><th>Criado em</th>{podeEditar && <th className="acoes">Ações</th>}</tr>
               </thead>
               <tbody>
                 {dados.map((v) => (
                   <tr key={v.id} style={v.ativo ? undefined : { opacity: 0.55 }}>
                     <td className="negrito">{v.tipo}</td>
+                    <td>{nomeEmpresa(s.empresas.find((x) => x.id === v.empresa_id)) || v.empresa_nome}</td>
                     <td>{[v.marca, v.modelo].filter(Boolean).join(' ') || '—'}</td>
                     <td className="num">{v.ano || '—'}</td>
                     <td className="mono">{v.placa || '—'}</td>
