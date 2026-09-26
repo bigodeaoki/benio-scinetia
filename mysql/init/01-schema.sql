@@ -254,3 +254,45 @@ CREATE TABLE documentos (
   FOREIGN KEY (empresa_id) REFERENCES empresas(id) ON DELETE CASCADE,
   FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE SET NULL
 ) ENGINE=InnoDB;
+
+-- Clientes: cada empresa cadastra os seus, e todo o grupo (matriz e filiais)
+-- enxerga. Altera quem tem a empresa dona no escopo. CNPJ só com os 14
+-- caracteres (numérico ou alfanumérico), único no grupo quando informado.
+CREATE TABLE clientes (
+  id CHAR(36) NOT NULL PRIMARY KEY,
+  matriz_id CHAR(36) NOT NULL,
+  empresa_id CHAR(36) NOT NULL,
+  razao_social VARCHAR(150) NOT NULL,
+  nome_fantasia VARCHAR(150) NULL,
+  cnpj VARCHAR(14) NULL,
+  inscricao_estadual VARCHAR(30) NULL,
+  email VARCHAR(150) NULL,
+  telefone VARCHAR(30) NULL,
+  cep CHAR(8) NULL,
+  logradouro VARCHAR(150) NULL,
+  numero VARCHAR(20) NULL,
+  complemento VARCHAR(80) NULL,
+  bairro VARCHAR(80) NULL,
+  cidade VARCHAR(100) NULL,
+  uf CHAR(2) NULL,
+  observacoes VARCHAR(255) NULL,
+  ativo TINYINT(1) NOT NULL DEFAULT 1,
+  criado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  atualizado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_cliente_cnpj (matriz_id, cnpj),
+  KEY idx_clientes_grupo (matriz_id, ativo, razao_social),
+  FOREIGN KEY (matriz_id) REFERENCES empresas(id) ON DELETE CASCADE,
+  FOREIGN KEY (empresa_id) REFERENCES empresas(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+-- Responsáveis (contatos) do cliente, na ordem informada; regravados a cada edição
+CREATE TABLE cliente_responsaveis (
+  cliente_id CHAR(36) NOT NULL,
+  ordem INT NOT NULL,
+  nome VARCHAR(150) NOT NULL,
+  cargo VARCHAR(80) NULL,
+  telefone VARCHAR(30) NULL,
+  email VARCHAR(150) NULL,
+  PRIMARY KEY (cliente_id, ordem),
+  FOREIGN KEY (cliente_id) REFERENCES clientes(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
