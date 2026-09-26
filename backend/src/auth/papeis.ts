@@ -13,5 +13,6 @@ export const PERM = {
   usuarios: ['owner'],                                              // usuários do próprio grupo
   materias: ['owner', 'compras', 'producao', 'administrativo'],     // cadastro de matérias-primas
   estoque: ['owner', 'compras', 'producao', 'administrativo', 'operador'], // entradas de compra no estoque
+  envases: ['owner', 'compras', 'producao', 'administrativo'],      // itens de envase (frascos, caixas...)
   formulacoes: ['owner', 'farmacia'],                              // fórmulas: o responsável é o papel farmácia
 };

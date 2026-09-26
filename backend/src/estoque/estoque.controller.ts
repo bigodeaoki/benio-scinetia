@@ -11,10 +11,10 @@ const Uuid = () => new ParseUUIDPipe({ exceptionFactory: () => new BadRequestExc
 export class EstoqueController {
   constructor(private service: EstoqueService) {}
 
-  // ?materia=<uuid> filtra por matéria-prima
+  // ?materia=<uuid> ou ?envase=<uuid> filtram por item
   @Get()
-  listar(@EmpresaId() empresaId: string, @Query('materia') materia?: string) {
-    return this.service.listar(empresaId, materia || undefined);
+  listar(@EmpresaId() empresaId: string, @Query('materia') materia?: string, @Query('envase') envase?: string) {
+    return this.service.listar(empresaId, { materia: materia || undefined, envase: envase || undefined });
   }
 
   @Get('resumo')

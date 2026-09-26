@@ -1,5 +1,5 @@
 import React from 'react';
-import { Boxes, Building2, FlaskConical, LayoutDashboard, LogOut, Network, Package, Users } from 'lucide-react';
+import { Box, Boxes, Building2, FlaskConical, LayoutDashboard, LogOut, Network, Package, Users } from 'lucide-react';
 import { NavLink, Route, Routes, useLocation } from 'react-router-dom';
 import { SessaoContext } from './App.jsx';
 import { limparSessao } from './api.js';
@@ -9,6 +9,7 @@ import Dashboard from './pages/Dashboard.jsx';
 import Materias from './pages/Materias.jsx';
 import Estoque from './pages/Estoque.jsx';
 import Formulacoes from './pages/Formulacoes.jsx';
+import Envases from './pages/Envases.jsx';
 import Filiais from './pages/Filiais.jsx';
 import Usuarios from './pages/Usuarios.jsx';
 import AdminEmpresas from './pages/admin/Empresas.jsx';
@@ -29,6 +30,7 @@ function menuDe(papel) {
     inicio,
     { grupo: 'Cadastros' },
     { caminho: '/materias', titulo: 'Matérias-primas', Icone: Package },
+    { caminho: '/envases', titulo: 'Envase', Icone: Box },
     { caminho: '/formulacoes', titulo: 'Formulações', Icone: FlaskConical },
     { grupo: 'Operação' },
     { caminho: '/estoque', titulo: 'Estoque', Icone: Boxes },
@@ -93,6 +95,7 @@ export default function Shell() {
             {!ehAdmin && <Route path="materias" element={<Materias />} />}
             {!ehAdmin && <Route path="estoque" element={<Estoque />} />}
             {!ehAdmin && <Route path="formulacoes" element={<Formulacoes />} />}
+            {!ehAdmin && <Route path="envases" element={<Envases />} />}
             {ehDono && <Route path="filiais" element={<Filiais />} />}
             {ehDono && <Route path="usuarios" element={<Usuarios />} />}
             {ehAdmin && <Route path="admin/empresas" element={<AdminEmpresas />} />}

@@ -9,8 +9,9 @@ import { MateriasModule } from './materias/materias.module';
 import { PainelModule } from './painel/painel.module';
 import { EstoqueModule } from './estoque/estoque.module';
 import { FormulacoesModule } from './formulacoes/formulacoes.module';
+import { EnvasesModule } from './envases/envases.module';
 
 @Module({
-  imports: [DatabaseModule, AuditoriaModule, AuthModule, AdminModule, EmpresasModule, UsuariosModule, MateriasModule, PainelModule, EstoqueModule, FormulacoesModule],
+  imports: [DatabaseModule, AuditoriaModule, AuthModule, AdminModule, EmpresasModule, UsuariosModule, MateriasModule, PainelModule, EstoqueModule, FormulacoesModule, EnvasesModule],
 })
 export class AppModule {}

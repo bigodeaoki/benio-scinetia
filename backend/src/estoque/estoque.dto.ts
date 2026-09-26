@@ -2,10 +2,14 @@ import { IsNumber, IsOptional, IsPositive, IsString, IsUUID, Length, Matches } f
 
 const DATA = /^\d{4}-\d{2}-\d{2}$/;
 
-// Entrada de compra no estoque: quantidade na unidade que a empresa quiser
+// Entrada de compra no estoque: de uma matéria-prima OU de um item de envase
+// (exatamente um dos dois), na unidade que a empresa quiser
 export class EntradaEstoqueDto {
-  @IsUUID('4', { message: 'Matéria-prima inválida' })
-  materia_prima_id: string;
+  @IsOptional() @IsUUID('4', { message: 'Matéria-prima inválida' })
+  materia_prima_id?: string;
+
+  @IsOptional() @IsUUID('4', { message: 'Item de envase inválido' })
+  envase_id?: string;
 
   @IsNumber({}, { message: 'Quantidade deve ser um número' }) @IsPositive({ message: 'Quantidade deve ser maior que zero' })
   quantidade: number;

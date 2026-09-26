@@ -5,6 +5,7 @@ import { api } from '../api.js';
 import { Badge, Campo, Carregando, Erro, Modal, Vazio, confirmar, fmtData, fmtDataHora, fmtQtd, hoje, toast, useDados } from '../ui.jsx';
 
 const PODE_EDITAR = ['owner', 'compras', 'producao', 'administrativo', 'operador'];
+const TIPO_ROTULO = { materia_prima: 'Matéria-prima', envase: 'Envase' };
 
 // Vencimento: vermelho se passou, amarelo se vence em 30 dias
 function Vencimento({ e }) {
@@ -15,22 +16,24 @@ function Vencimento({ e }) {
   return <>{fmtData(e.data_vencimento)} <Badge cor={cor}>{texto}</Badge></>;
 }
 
+// Estoque: entradas de compra de matérias-primas e de itens de envase
 export default function Estoque() {
   const s = React.useContext(SessaoContext);
   const podeEditar = PODE_EDITAR.includes(s.usuario?.papel);
   const { dados, erro, carregando, recarregar } = useDados(() => api('/estoque'), [s.empresaId]);
   const { dados: resumo, recarregar: recarregarResumo } = useDados(() => api('/estoque/resumo'), [s.empresaId]);
   const { dados: materias } = useDados(() => api('/materias'), [s.empresaId]);
+  const { dados: envases } = useDados(() => api('/envases'), [s.empresaId]);
   const [editando, setEditando] = React.useState(null);
   const [filtro, setFiltro] = React.useState('');
   const empresa = s.empresas.find((e) => e.id === s.empresaId);
   const atualizar = () => { recarregar(); recarregarResumo(); };
-  const linhas = (dados || []).filter((e) => !filtro || e.materia_prima_id === filtro);
+  const linhas = (dados || []).filter((e) => !filtro || `${e.tipo}:${e.item_id}` === filtro);
 
   async function alterarAtivo(e, ativo) {
     const ok = await confirmar({
       titulo: ativo ? 'Restaurar entrada' : 'Cancelar entrada',
-      mensagem: ativo ? `Restaurar a entrada de ${fmtQtd(e.quantidade)} ${e.unidade} de ${e.materia_nome}?` : `Cancelar a entrada de ${fmtQtd(e.quantidade)} ${e.unidade} de ${e.materia_nome}? Ela sai dos totais, mas fica no histórico.`,
+      mensagem: ativo ? `Restaurar a entrada de ${fmtQtd(e.quantidade)} ${e.unidade} de ${e.item_nome}?` : `Cancelar a entrada de ${fmtQtd(e.quantidade)} ${e.unidade} de ${e.item_nome}? Ela sai dos totais, mas fica no histórico.`,
       confirmarTexto: ativo ? 'Restaurar' : 'Cancelar entrada',
       perigo: !ativo,
     });
@@ -49,8 +52,8 @@ export default function Estoque() {
       {!!resumo?.length && (
         <div className="grade-kpis">
           {resumo.map((r) => (
-            <div className="kpi" key={`${r.materia_prima_id}-${r.unidade}`}>
-              <div className="kpi-rotulo">{r.materia_nome}</div>
+            <div className="kpi" key={`${r.tipo}-${r.item_id}-${r.unidade}`}>
+              <div className="kpi-rotulo">{r.item_nome} <span style={{ textTransform: 'none', fontWeight: 500 }}>· {TIPO_ROTULO[r.tipo]}</span></div>
               <div className="kpi-valor">{fmtQtd(r.total)} <span style={{ fontSize: 14 }}>{r.unidade}</span></div>
               <div className="kpi-extra">
                 {r.entradas} entrada(s)
@@ -64,27 +67,33 @@ export default function Estoque() {
       <div className="cartao">
         <div className="cartao-cabecalho">
           <h3><Boxes size={15} className="icone-cartao" />Estoque de {empresa ? (empresa.matriz ? `${empresa.nome} (matriz)` : empresa.nome) : ''}</h3>
-          <select value={filtro} onChange={(e) => setFiltro(e.target.value)} style={{ width: 'auto', minWidth: 200 }} title="Filtrar por matéria-prima">
-            <option value="">Todas as matérias-primas</option>
-            {(materias || []).map((m) => <option key={m.id} value={m.id}>{m.nome}{m.origem === 'matriz' ? ' (matriz)' : ''}</option>)}
+          <select value={filtro} onChange={(e) => setFiltro(e.target.value)} style={{ width: 'auto', minWidth: 220 }} title="Filtrar por item">
+            <option value="">Todos os itens</option>
+            <optgroup label="Matérias-primas">
+              {(materias || []).map((m) => <option key={m.id} value={`materia_prima:${m.id}`}>{m.nome}{m.origem === 'matriz' ? ' (matriz)' : ''}</option>)}
+            </optgroup>
+            <optgroup label="Envase">
+              {(envases || []).map((v) => <option key={v.id} value={`envase:${v.id}`}>{v.nome}{v.origem === 'matriz' ? ' (matriz)' : ''}</option>)}
+            </optgroup>
           </select>
           {podeEditar && <button className="botao" onClick={() => setEditando({ novo: true })}>+ Nova entrada</button>}
         </div>
         <div className="alerta alerta-info">
-          Cada entrada é uma compra: quantidade na unidade que você usar, data da compra e vencimento. O estoque é de cada empresa;
-          a matéria-prima pode ser própria ou da matriz. Entrada errada é <strong>cancelada</strong>, nunca apagada.
+          Cada entrada é uma compra de matéria-prima ou de item de envase: quantidade na unidade que você usar, data da compra e vencimento.
+          O estoque é de cada empresa; o item pode ser próprio ou da matriz. Entrada errada é <strong>cancelada</strong>, nunca apagada.
         </div>
         <Erro msg={erro} />
         {carregando ? <Carregando /> : !linhas.length ? <Vazio msg="Nenhuma entrada de estoque" /> : (
           <div className="tabela-envolucro">
             <table className="tabela">
               <thead>
-                <tr><th>Matéria-prima</th><th className="num">Quantidade</th><th>Compra</th><th>Vencimento</th><th>Status</th><th>Criada em</th>{podeEditar && <th className="acoes">Ações</th>}</tr>
+                <tr><th>Item</th><th>Tipo</th><th className="num">Quantidade</th><th>Compra</th><th>Vencimento</th><th>Status</th><th>Criada em</th>{podeEditar && <th className="acoes">Ações</th>}</tr>
               </thead>
               <tbody>
                 {linhas.map((e) => (
                   <tr key={e.id} style={e.ativo ? undefined : { opacity: 0.55 }}>
-                    <td className="negrito">{e.materia_nome}</td>
+                    <td className="negrito">{e.item_nome}</td>
+                    <td><Badge cor={e.tipo === 'envase' ? 'roxo' : 'azul'}>{TIPO_ROTULO[e.tipo]}</Badge></td>
                     <td className="num">{fmtQtd(e.quantidade)} {e.unidade}</td>
                     <td>{fmtData(e.data_compra)}</td>
                     <td><Vencimento e={e} /></td>
@@ -106,28 +115,36 @@ export default function Estoque() {
         )}
       </div>
       {editando && (
-        <FormEntrada entrada={editando.novo ? null : editando} materias={(materias || []).filter((m) => m.ativo)}
+        <FormEntrada entrada={editando.novo ? null : editando} materias={(materias || []).filter((m) => m.ativo)} envases={(envases || []).filter((v) => v.ativo)}
           aoFechar={() => setEditando(null)} aoSalvar={() => { setEditando(null); atualizar(); toast.sucesso('Entrada salva'); }} />
       )}
     </>
   );
 }
 
-function FormEntrada({ entrada, materias, aoFechar, aoSalvar }) {
+function FormEntrada({ entrada, materias, envases, aoFechar, aoSalvar }) {
   const [f, setF] = React.useState(entrada
-    ? { materia_prima_id: entrada.materia_prima_id, quantidade: entrada.quantidade, unidade: entrada.unidade, data_compra: String(entrada.data_compra).slice(0, 10), data_vencimento: entrada.data_vencimento ? String(entrada.data_vencimento).slice(0, 10) : '' }
-    : { materia_prima_id: materias[0]?.id || '', quantidade: '', unidade: materias[0]?.unidade || '', data_compra: hoje(), data_vencimento: '' });
+    ? { tipo: entrada.tipo, item_id: entrada.item_id, quantidade: entrada.quantidade, unidade: entrada.unidade, data_compra: String(entrada.data_compra).slice(0, 10), data_vencimento: entrada.data_vencimento ? String(entrada.data_vencimento).slice(0, 10) : '' }
+    : { tipo: 'materia_prima', item_id: materias[0]?.id || '', quantidade: '', unidade: materias[0]?.unidade || '', data_compra: hoje(), data_vencimento: '' });
   const [erro, setErro] = React.useState(null);
   const mudar = (campo, valor) => setF((s) => ({ ...s, [campo]: valor }));
-  // Trocar a matéria-prima sugere a unidade dela; a empresa pode sobrescrever
-  const mudarMateria = (id) => {
-    const mp = materias.find((m) => m.id === id);
-    setF((s) => ({ ...s, materia_prima_id: id, unidade: mp?.unidade || s.unidade }));
+  const itens = f.tipo === 'envase' ? envases : materias;
+  // Trocar o tipo ou o item sugere a unidade: a da matéria-prima, ou "un" para envase
+  const mudarTipo = (tipo) => {
+    const lista = tipo === 'envase' ? envases : materias;
+    setF((s) => ({ ...s, tipo, item_id: lista[0]?.id || '', unidade: tipo === 'envase' ? 'un' : lista[0]?.unidade || '' }));
+  };
+  const mudarItem = (id) => {
+    const it = itens.find((m) => m.id === id);
+    setF((s) => ({ ...s, item_id: id, unidade: s.tipo === 'envase' ? s.unidade || 'un' : it?.unidade || s.unidade }));
   };
 
   async function salvar() {
     setErro(null);
-    const corpo = { materia_prima_id: f.materia_prima_id, quantidade: Number(f.quantidade), unidade: f.unidade || undefined, data_compra: f.data_compra, data_vencimento: f.data_vencimento || undefined };
+    const corpo = {
+      [f.tipo === 'envase' ? 'envase_id' : 'materia_prima_id']: f.item_id,
+      quantidade: Number(f.quantidade), unidade: f.unidade || undefined, data_compra: f.data_compra, data_vencimento: f.data_vencimento || undefined,
+    };
     try {
       if (entrada) await api(`/estoque/${entrada.id}`, { method: 'PUT', body: corpo });
       else await api('/estoque', { method: 'POST', body: corpo });
@@ -138,15 +155,21 @@ function FormEntrada({ entrada, materias, aoFechar, aoSalvar }) {
   }
 
   return (
-    <Modal titulo={entrada ? 'Editar entrada' : 'Nova entrada de estoque'} largura={640} onFechar={aoFechar}
+    <Modal titulo={entrada ? 'Editar entrada' : 'Nova entrada de estoque'} largura={680} onFechar={aoFechar}
       rodape={<><button className="botao botao-secundario" onClick={aoFechar}>Cancelar</button><button className="botao" onClick={salvar}>Salvar entrada</button></>}
     >
       <Erro msg={erro} />
-      {!materias.length && <div className="alerta alerta-aviso">Cadastre uma matéria-prima antes de lançar estoque.</div>}
+      {!materias.length && !envases.length && <div className="alerta alerta-aviso">Cadastre uma matéria-prima ou um item de envase antes de lançar estoque.</div>}
       <div className="linha-campos">
-        <Campo rotulo="Matéria-prima *">
-          <select value={f.materia_prima_id} onChange={(e) => mudarMateria(e.target.value)} autoFocus>
-            {materias.map((m) => <option key={m.id} value={m.id}>{m.nome}{m.origem === 'matriz' ? ' (da matriz)' : ''}</option>)}
+        <Campo rotulo="Tipo *" largura={160}>
+          <select value={f.tipo} onChange={(e) => mudarTipo(e.target.value)}>
+            <option value="materia_prima">Matéria-prima</option>
+            <option value="envase">Envase</option>
+          </select>
+        </Campo>
+        <Campo rotulo={f.tipo === 'envase' ? 'Item de envase *' : 'Matéria-prima *'}>
+          <select value={f.item_id} onChange={(e) => mudarItem(e.target.value)} autoFocus>
+            {itens.map((m) => <option key={m.id} value={m.id}>{m.nome}{m.origem === 'matriz' ? ' (da matriz)' : ''}</option>)}
           </select>
         </Campo>
       </div>

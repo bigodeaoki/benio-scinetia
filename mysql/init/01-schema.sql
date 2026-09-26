@@ -87,14 +87,32 @@ CREATE TABLE materias_primas (
   FOREIGN KEY (matriz_id) REFERENCES empresas(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
--- Estoque: entradas de compra de matéria-prima por empresa. Cada entrada é um
--- lote: quantidade na unidade informada (kg, L, un...), data da compra e de
--- vencimento. A matéria-prima pode ser da própria empresa ou da matriz.
--- Entrada errada é cancelada (ativo = 0), nunca apagada.
+-- Envase: itens de envasamento (frascos, tampas, rótulos, caixas...). Sem
+-- quantidade aqui: quem controla é o estoque, por entradas de compra. Mesma
+-- visibilidade das matérias-primas (a filial enxerga os da matriz).
+CREATE TABLE envases (
+  id CHAR(36) NOT NULL PRIMARY KEY,
+  empresa_id CHAR(36) NOT NULL,
+  matriz_id CHAR(36) NOT NULL,
+  nome VARCHAR(150) NOT NULL,
+  descricao VARCHAR(255) NULL,
+  ativo TINYINT(1) NOT NULL DEFAULT 1,
+  criado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  atualizado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_envase_nome (empresa_id, nome),
+  KEY idx_envases_matriz (matriz_id),
+  FOREIGN KEY (empresa_id) REFERENCES empresas(id) ON DELETE CASCADE,
+  FOREIGN KEY (matriz_id) REFERENCES empresas(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+-- Estoque: entradas de compra por empresa, de matéria-prima OU de envase
+-- (exatamente um dos dois). Cada entrada é um lote: quantidade na unidade
+-- informada, data da compra e de vencimento. Entrada errada é cancelada.
 CREATE TABLE estoque (
   id CHAR(36) NOT NULL PRIMARY KEY,
   empresa_id CHAR(36) NOT NULL,
-  materia_prima_id CHAR(36) NOT NULL,
+  materia_prima_id CHAR(36) NULL,
+  envase_id CHAR(36) NULL,
   quantidade DECIMAL(14,3) NOT NULL,
   unidade VARCHAR(20) NOT NULL,
   data_compra DATE NOT NULL,
@@ -102,9 +120,12 @@ CREATE TABLE estoque (
   ativo TINYINT(1) NOT NULL DEFAULT 1,
   criado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   atualizado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  KEY idx_estoque_empresa (empresa_id, materia_prima_id, data_compra),
+  KEY idx_estoque_materia (empresa_id, materia_prima_id, data_compra),
+  KEY idx_estoque_envase (empresa_id, envase_id, data_compra),
+  CONSTRAINT ck_estoque_item CHECK ((materia_prima_id IS NOT NULL) + (envase_id IS NOT NULL) = 1),
   FOREIGN KEY (empresa_id) REFERENCES empresas(id) ON DELETE CASCADE,
-  FOREIGN KEY (materia_prima_id) REFERENCES materias_primas(id) ON DELETE CASCADE
+  FOREIGN KEY (materia_prima_id) REFERENCES materias_primas(id) ON DELETE CASCADE,
+  FOREIGN KEY (envase_id) REFERENCES envases(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
 -- Formulações: fórmulas da empresa, mantidas pelo papel farmácia (e pelo dono).
