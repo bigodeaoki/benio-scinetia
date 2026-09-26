@@ -15,4 +15,5 @@ export const PERM = {
   estoque: ['owner', 'compras', 'producao', 'administrativo', 'operador'], // entradas de compra no estoque
   envases: ['owner', 'compras', 'producao', 'administrativo'],      // itens de envase (frascos, caixas...)
   formulacoes: ['owner', 'farmacia'],                              // fórmulas: o responsável é o papel farmácia
+  maquinas: ['owner', 'producao', 'administrativo', 'financeiro'], // maquinário e custo-hora
 };

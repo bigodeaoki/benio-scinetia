@@ -157,3 +157,23 @@ CREATE TABLE formulacao_itens (
   FOREIGN KEY (formulacao_id) REFERENCES formulacoes(id) ON DELETE CASCADE,
   FOREIGN KEY (materia_prima_id) REFERENCES materias_primas(id)
 ) ENGINE=InnoDB;
+
+-- Maquinário: máquinas e equipamentos de cada empresa (bem físico, não é
+-- compartilhado com as filiais). Custo por hora em R$ e rendimento em %,
+-- usado como fator de perda como no v1 (custo / (rendimento/100)).
+CREATE TABLE maquinas (
+  id CHAR(36) NOT NULL PRIMARY KEY,
+  empresa_id CHAR(36) NOT NULL,
+  titulo VARCHAR(150) NOT NULL,
+  descricao VARCHAR(255) NULL,
+  modelo VARCHAR(100) NULL,
+  custo_hora DECIMAL(12,2) NOT NULL DEFAULT 0,
+  rendimento_pct DECIMAL(6,2) NOT NULL DEFAULT 100,
+  ativo TINYINT(1) NOT NULL DEFAULT 1,
+  criado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  atualizado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_maquina_titulo (empresa_id, titulo),
+  CONSTRAINT ck_maquina_custo CHECK (custo_hora >= 0),
+  CONSTRAINT ck_maquina_rendimento CHECK (rendimento_pct > 0 AND rendimento_pct <= 100),
+  FOREIGN KEY (empresa_id) REFERENCES empresas(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
