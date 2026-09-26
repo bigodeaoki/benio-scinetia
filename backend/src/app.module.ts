@@ -12,8 +12,9 @@ import { FormulacoesModule } from './formulacoes/formulacoes.module';
 import { EnvasesModule } from './envases/envases.module';
 import { MaquinasModule } from './maquinas/maquinas.module';
 import { VeiculosModule } from './veiculos/veiculos.module';
+import { FuncionariosModule } from './funcionarios/funcionarios.module';
 
 @Module({
-  imports: [DatabaseModule, AuditoriaModule, AuthModule, AdminModule, EmpresasModule, UsuariosModule, MateriasModule, PainelModule, EstoqueModule, FormulacoesModule, EnvasesModule, MaquinasModule, VeiculosModule],
+  imports: [DatabaseModule, AuditoriaModule, AuthModule, AdminModule, EmpresasModule, UsuariosModule, MateriasModule, PainelModule, EstoqueModule, FormulacoesModule, EnvasesModule, MaquinasModule, VeiculosModule, FuncionariosModule],
 })
 export class AppModule {}

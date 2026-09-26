@@ -45,6 +45,7 @@ backend/src
   envases/     itens de envase (frascos, tampas, rótulos, caixas) da empresa ativa; sem quantidade, o estoque controla; mesma visibilidade das matérias-primas
   maquinas/    maquinário de cada empresa (título, modelo, custo R$/h, rendimento %); bem físico, não é compartilhado com filiais
   veiculos/    logística: veículos de cada empresa (tipo livre, marca, modelo, ano, placa, custo R$/h, status, última manutenção); bem físico como o maquinário
+  funcionarios/ mão de obra de cada empresa (nome, documento, e-mail, categoria livre, custo R$/h, admissão, status de RH); só dono, administrativo e financeiro leem e escrevem
   estoque/     entradas de compra por empresa, de matéria-prima ou de item de envase (um dos dois), com resumo por item e unidade
   painel/      resumo da tela inicial por visão
   auditoria/   trilha de auditoria (global)
@@ -53,7 +54,7 @@ backend/src
 frontend/src
   App.jsx      rota pública (entrar) e a área logada
   Shell.jsx    menu por visão, seletor de empresa, cabeçalho
-  pages/       Dashboard, Matérias-primas, Envase, Formulações, Maquinário, Logística, Estoque, Filiais, Usuários, admin/Empresas, admin/Usuários, Login
+  pages/       Dashboard, Matérias-primas, Envase, Formulações, Maquinário, Logística, Mão de obra, Estoque, Filiais, Usuários, admin/Empresas, admin/Usuários, Login
 mysql/init     schema inicial (só roda em volume novo)
 mysql/migrations  scripts idempotentes, aplicados em produção antes do deploy
 ```

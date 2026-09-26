@@ -202,3 +202,27 @@ CREATE TABLE veiculos (
   CONSTRAINT ck_veiculo_ano CHECK (ano IS NULL OR ano BETWEEN 1900 AND 2100),
   FOREIGN KEY (empresa_id) REFERENCES empresas(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
+
+-- Mão de obra: funcionários de cada empresa (matriz ou filial), com categoria
+-- livre (financeiro, marketing, produção…) e custo por hora em R$ para o
+-- custeio. Não é o login do sistema (usuarios): nem todo funcionário acessa
+-- o app. Status é a situação de RH; `ativo` é a exclusão lógica.
+CREATE TABLE funcionarios (
+  id CHAR(36) NOT NULL PRIMARY KEY,
+  empresa_id CHAR(36) NOT NULL,
+  nome VARCHAR(150) NOT NULL,
+  documento VARCHAR(20) NULL,
+  email VARCHAR(150) NULL,
+  categoria VARCHAR(60) NOT NULL,
+  custo_hora DECIMAL(12,2) NOT NULL DEFAULT 0,
+  data_admissao DATE NULL,
+  status ENUM('ativo','ferias','afastado','desligado') NOT NULL DEFAULT 'ativo',
+  ativo TINYINT(1) NOT NULL DEFAULT 1,
+  criado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  atualizado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_funcionario_documento (empresa_id, documento),
+  UNIQUE KEY uk_funcionario_email (empresa_id, email),
+  KEY idx_funcionarios_empresa (empresa_id, categoria, nome),
+  CONSTRAINT ck_funcionario_custo CHECK (custo_hora >= 0),
+  FOREIGN KEY (empresa_id) REFERENCES empresas(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
