@@ -4,7 +4,7 @@ import { ClipboardList } from 'lucide-react';
 import { SessaoContext } from '../App.jsx';
 import { api } from '../api.js';
 import { Badge, Campo, Carregando, Erro, Modal, Vazio, confirmar, fmtBRL, fmtData, fmtDataHora, fmtQtd, hoje, toast, useDados } from '../ui.jsx';
-import { BuscaFormulacao, ETAPAS, PODE_EDITAR_PEDIDOS, STATUS, Stepper, fmtNumero, necessidade } from './pedidos-comum.jsx';
+import { BuscaFormulacao, ETAPAS, PODE_EDITAR_PEDIDOS, STATUS, Stepper, fmtNumero, necessidade, producaoPrevista } from './pedidos-comum.jsx';
 
 // Página do pedido, também para criar (/pedidos/novo): stepper com as etapas
 // no topo. Etapa 1: dados do pedido, histórico de formulações (a nova põe a
@@ -393,6 +393,8 @@ function Etapa2({ p, podeEditar, recarregar, antesDeAvancar }) {
   const [salvando, setSalvando] = React.useState(false);
   const mudar = (campo, valor) => setF((x) => ({ ...x, [campo]: valor }));
   const producao = Number(f.quantidade) > 0 ? Number(f.quantidade) : 0;
+  // O rendimento das máquinas reduz o que sai, não a matéria-prima: fica avisado ao lado da quantidade
+  const prevista = producaoPrevista(producao, f.maquinas.map((m) => Number(m.rendimento_pct)).filter((r) => r > 0 && r <= 100));
   const alterado = String(f.quantidade) !== String(p.quantidade_producao ?? '') || f.unidade.trim() !== (p.unidade_producao || 'un') || assinatura(f.maquinas) !== assinatura(p.maquinas);
   const disponiveis = (cadastro || []).filter((m) => m.ativo && !f.maquinas.some((x) => x.maquina_id === m.id));
 
@@ -452,7 +454,19 @@ function Etapa2({ p, podeEditar, recarregar, antesDeAvancar }) {
           <input list="unidades-producao" value={f.unidade} onChange={(e) => mudar('unidade', e.target.value)} readOnly={!podeEditar} />
           <datalist id="unidades-producao">{UNIDADES_PRODUCAO.map((u) => <option key={u} value={u} />)}</datalist>
         </Campo>
+        {producao > 0 && f.maquinas.length > 0 && (
+          <Campo rotulo="Produção prevista" largura={260}
+            dica={`rendimento ${f.maquinas.length > 1 ? `combinado (${f.maquinas.map((m) => `${fmtQtd(m.rendimento_pct, 2)} %`).join(' × ')}) de` : 'de'} ${fmtQtd(prevista.rendimento_pct, 2)} %`}>
+            <input value={`${fmtQtd(prevista.quantidade)} ${f.unidade}`} readOnly className="negrito" style={prevista.rendimento_pct < 100 ? { background: '#fdf2d9', borderColor: '#e9c46a' } : undefined} />
+          </Campo>
+        )}
       </div>
+      {producao > 0 && f.maquinas.length > 0 && prevista.rendimento_pct < 100 && (
+        <div className="alerta alerta-aviso">
+          Com o rendimento de <strong>{fmtQtd(prevista.rendimento_pct, 2)} %</strong>, dos {fmtQtd(producao)} {f.unidade} planejados serão produzidos <strong>{fmtQtd(prevista.quantidade)} {f.unidade}</strong>.
+          A matéria-prima necessária continua a do planejado.
+        </div>
+      )}
 
       <Titulo>Matérias-primas necessárias</Titulo>
       {!ingredientes.length ? (

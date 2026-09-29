@@ -1,4 +1,4 @@
-import { necessidade } from './necessidade';
+import { necessidade, producaoPrevista } from './necessidade';
 
 describe('necessidade de matéria-prima', () => {
   it('multiplica a quantidade da fórmula (por 1 unidade) pela produção', () => {
@@ -23,5 +23,21 @@ describe('necessidade de matéria-prima', () => {
     expect(necessidade(2, 'sacos', 1500)).toEqual({ quantidade: 3000, unidade: 'sacos' });
     expect(necessidade(5, 'kg', 1000)).toEqual({ quantidade: 5000, unidade: 'kg' });
     expect(necessidade(5, 'L', 1000)).toEqual({ quantidade: 5000, unidade: 'L' });
+  });
+});
+
+describe('produção prevista pelo rendimento das máquinas', () => {
+  it('reduz o que sai: 300 com rendimento de 90 % produzem 270', () => {
+    expect(producaoPrevista(300, [90])).toEqual({ rendimento_pct: 90, quantidade: 270 });
+    expect(producaoPrevista(300, [100])).toEqual({ rendimento_pct: 100, quantidade: 300 });
+  });
+
+  it('multiplica os rendimentos quando há várias máquinas', () => {
+    expect(producaoPrevista(300, [95, 90])).toEqual({ rendimento_pct: 85.5, quantidade: 256.5 });
+    expect(producaoPrevista(1000, [98.5, 100, 90])).toEqual({ rendimento_pct: 88.65, quantidade: 886.5 });
+  });
+
+  it('sem máquinas, a produção prevista é a planejada', () => {
+    expect(producaoPrevista(300, [])).toEqual({ rendimento_pct: 100, quantidade: 300 });
   });
 });

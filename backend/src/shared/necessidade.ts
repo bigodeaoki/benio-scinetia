@@ -19,3 +19,11 @@ export function necessidade(porUnidade: number, unidade: string, producao: numbe
   }
   return { quantidade: arredondar(quantidade), unidade: un };
 }
+
+// Produção prevista: o rendimento das máquinas não muda a matéria-prima, reduz o que sai.
+// 300 planejados com rendimento de 90 % produzem 270. Com várias máquinas, os rendimentos
+// se multiplicam (95 % e 90 % dão 85,5 %). Sem máquinas, vale o planejado.
+export function producaoPrevista(quantidade: number, rendimentos: number[]): { rendimento_pct: number; quantidade: number } {
+  const fator = rendimentos.reduce((acc, r) => acc * (Number(r) / 100), 1);
+  return { rendimento_pct: Math.round(fator * 10000) / 100, quantidade: arredondar(Number(quantidade) * fator) };
+}

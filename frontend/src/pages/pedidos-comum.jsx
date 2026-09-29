@@ -109,3 +109,10 @@ export function necessidade(porUnidade, unidade, producao) {
   }
   return { quantidade: Math.round(quantidade * 1000) / 1000, unidade: un };
 }
+
+// Produção prevista: o rendimento das máquinas não muda a matéria-prima, reduz o que sai
+// (300 a 90 % produzem 270). Com várias máquinas, os rendimentos se multiplicam. Mesma regra do backend
+export function producaoPrevista(quantidade, rendimentos) {
+  const fator = rendimentos.reduce((acc, r) => acc * (Number(r) / 100), 1);
+  return { rendimento_pct: Math.round(fator * 10000) / 100, quantidade: Math.round(Number(quantidade) * fator * 1000) / 1000 };
+}

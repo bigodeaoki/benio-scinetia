@@ -6,7 +6,7 @@ import { EnvasesService } from '../envases/envases.service';
 import { FormulacoesService } from '../formulacoes/formulacoes.service';
 import { MateriasService } from '../materias/materias.service';
 import { novoId } from '../shared/ids';
-import { necessidade } from '../shared/necessidade';
+import { necessidade, producaoPrevista } from '../shared/necessidade';
 import { AmostraDto, MaquinaPedidoDto, PedidoDto, ProducaoDto, TrocaFormulacaoDto } from './pedidos.dto';
 
 const COLUNAS = `p.id, p.matriz_id, p.empresa_id, e.nome AS empresa_nome, p.numero, p.cliente_id, c.razao_social AS cliente_nome, c.nome_fantasia AS cliente_fantasia,
@@ -87,7 +87,12 @@ export class PedidosService {
          FROM pedido_maquinas pm JOIN maquinas m ON m.id = pm.maquina_id WHERE pm.pedido_id = ? ORDER BY pm.ordem, m.titulo`,
       [id],
     );
-    return { ...pedido, formulacoes, amostras, amostras_resumo: this.resumoAmostras(amostras), formulacao_ingredientes: ingredientes, maquinas };
+    // O rendimento das máquinas não muda a matéria-prima: reduz o que sai (300 a 90 % produzem 270)
+    const prevista = producao > 0 ? producaoPrevista(producao, maquinas.map((m: any) => Number(m.rendimento_pct))) : null;
+    return {
+      ...pedido, formulacoes, amostras, amostras_resumo: this.resumoAmostras(amostras), formulacao_ingredientes: ingredientes, maquinas,
+      rendimento_combinado_pct: prevista ? prevista.rendimento_pct : null, producao_prevista: prevista ? prevista.quantidade : null,
+    };
   }
 
   // Só as ativas: nº de envios, logística total, embalagens e quantidade por unidade
