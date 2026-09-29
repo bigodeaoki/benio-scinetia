@@ -6,7 +6,8 @@ import { EnvasesService } from '../envases/envases.service';
 import { FormulacoesService } from '../formulacoes/formulacoes.service';
 import { MateriasService } from '../materias/materias.service';
 import { novoId } from '../shared/ids';
-import { AmostraDto, PedidoDto, ProducaoDto, TrocaFormulacaoDto } from './pedidos.dto';
+import { necessidade } from '../shared/necessidade';
+import { AmostraDto, MaquinaPedidoDto, PedidoDto, ProducaoDto, TrocaFormulacaoDto } from './pedidos.dto';
 
 const COLUNAS = `p.id, p.matriz_id, p.empresa_id, e.nome AS empresa_nome, p.numero, p.cliente_id, c.razao_social AS cliente_nome, c.nome_fantasia AS cliente_fantasia,
   p.formulacao_id, f.nome AS formulacao_nome, f.empresa_id AS formulacao_empresa_id,
@@ -66,8 +67,9 @@ export class PedidosService {
         WHERE a.pedido_id = ? ORDER BY a.ativo DESC, a.data_envio DESC, a.criado_em DESC`,
       [id],
     );
-    // Ingredientes da formulação atual, para a etapa de produção
-    const [ingredientes]: any = pedido.formulacao_id
+    // Ingredientes da formulação atual: a quantidade da fórmula vale para 1 unidade produzida;
+    // com a quantidade de produção definida, vem também o necessário de cada matéria-prima
+    const [itens]: any = pedido.formulacao_id
       ? await this.pool.query(
           `SELECT i.ordem, i.materia_prima_id, m.nome AS materia_prima, i.quantidade, i.unidade
              FROM formulacao_itens i JOIN materias_primas m ON m.id = i.materia_prima_id
@@ -75,7 +77,17 @@ export class PedidosService {
           [pedido.formulacao_id],
         )
       : [[]];
-    return { ...pedido, formulacoes, amostras, amostras_resumo: this.resumoAmostras(amostras), formulacao_ingredientes: ingredientes };
+    const producao = Number(pedido.quantidade_producao) || 0;
+    const ingredientes = itens.map((i: any) => {
+      const n = producao > 0 ? necessidade(Number(i.quantidade), i.unidade, producao) : null;
+      return { ...i, necessario: n ? n.quantidade : null, necessario_unidade: n ? n.unidade : null };
+    });
+    const [maquinas]: any = await this.pool.query(
+      `SELECT pm.id, pm.maquina_id, m.titulo, m.modelo, m.custo_hora, m.rendimento_pct AS rendimento_padrao, m.ativo AS maquina_ativa, pm.rendimento_pct, pm.ordem
+         FROM pedido_maquinas pm JOIN maquinas m ON m.id = pm.maquina_id WHERE pm.pedido_id = ? ORDER BY pm.ordem, m.titulo`,
+      [id],
+    );
+    return { ...pedido, formulacoes, amostras, amostras_resumo: this.resumoAmostras(amostras), formulacao_ingredientes: ingredientes, maquinas };
   }
 
   // Só as ativas: nº de envios, logística total, embalagens e quantidade por unidade
@@ -172,18 +184,56 @@ export class PedidosService {
   }
 
 
-  // Etapa 2: quantidade a produzir da formulação atual do pedido, na unidade que a empresa usar
+  // Etapa 2 (Produção): quantidade a produzir da formulação atual e o maquinário do pedido.
+  // Sem a lista de máquinas, a que já está no pedido é mantida; lista vazia limpa
   async definirProducao(escopo: EscopoSessao, empresaId: string, usuarioId: string, id: string, dto: ProducaoDto) {
     const atual = await this.exigirRascunho(escopo, empresaId, id);
     if (!atual.formulacao_id) throw new BadRequestException('O pedido ainda não tem formulação: adicione uma antes de definir a produção');
     const unidade = dto.unidade.trim();
     if (!unidade) throw new BadRequestException('Informe a unidade');
-    await this.pool.query('UPDATE pedidos SET quantidade_producao = ?, unidade_producao = ? WHERE id = ?', [dto.quantidade, unidade, id]);
+    const maquinas = dto.maquinas ? await this.validarMaquinas(atual, dto.maquinas) : null;
+    const cx = await this.pool.getConnection();
+    try {
+      await cx.beginTransaction();
+      await cx.query('UPDATE pedidos SET quantidade_producao = ?, unidade_producao = ? WHERE id = ?', [dto.quantidade, unidade, id]);
+      if (maquinas) {
+        await cx.query('DELETE FROM pedido_maquinas WHERE pedido_id = ?', [id]);
+        if (maquinas.length) {
+          await cx.query('INSERT INTO pedido_maquinas (id, pedido_id, maquina_id, rendimento_pct, ordem, usuario_id) VALUES ?', [
+            maquinas.map((m, i) => [novoId(), id, m.maquina_id, m.rendimento_pct, i + 1, usuarioId]),
+          ]);
+        }
+      }
+      await cx.commit();
+    } catch (e) {
+      await cx.rollback();
+      throw e;
+    } finally {
+      cx.release();
+    }
     await this.auditoria.registrar(null, {
       matriz_id: atual.matriz_id, empresa_id: atual.empresa_id, usuario_id: usuarioId, acao: 'pedido.producao_definida', entidade: 'pedidos', entidade_id: id,
-      detalhes: { numero: atual.numero, quantidade: dto.quantidade, unidade, formulacao_id: atual.formulacao_id },
+      detalhes: {
+        numero: atual.numero, quantidade: dto.quantidade, unidade, formulacao_id: atual.formulacao_id,
+        ...(maquinas ? { maquinas: maquinas.map((m) => ({ titulo: m.titulo, rendimento_pct: m.rendimento_pct })) } : {}),
+      },
     });
     return this.detalhar(escopo, empresaId, id);
+  }
+
+  // Máquinas da empresa do pedido, ativas e sem repetir; sem rendimento informado, vale o do cadastro
+  private async validarMaquinas(pedido: any, lista: MaquinaPedidoDto[]) {
+    const ids = lista.map((m) => m.maquina_id);
+    if (new Set(ids).size !== ids.length) throw new BadRequestException('Máquina repetida na lista');
+    if (!ids.length) return [];
+    const [rows]: any = await this.pool.query('SELECT id, titulo, rendimento_pct, ativo FROM maquinas WHERE id IN (?) AND empresa_id = ?', [ids, pedido.empresa_id]);
+    const porId = new Map<string, any>(rows.map((m: any) => [m.id, m]));
+    return lista.map((item) => {
+      const m = porId.get(item.maquina_id);
+      if (!m) throw new BadRequestException('Máquina não encontrada na empresa do pedido');
+      if (!m.ativo) throw new BadRequestException(`Máquina "${m.titulo}" está inativa`);
+      return { maquina_id: m.id as string, titulo: m.titulo as string, rendimento_pct: item.rendimento_pct ?? Number(m.rendimento_pct) };
+    });
   }
 
   // Etapa onde o usuário parou (o stepper), só em rascunho. Para sair da etapa 1 é preciso ter

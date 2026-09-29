@@ -7,7 +7,7 @@ export const STATUS = { rascunho: ['Rascunho', 'amarelo'], concluido: ['Concluí
 // Etapas do pedido; as não definidas já aparecem no stepper
 export const ETAPAS = [
   { numero: 1, nome: 'Formulação e amostras', definida: true },
-  { numero: 2, nome: 'Quantidade de produção', definida: true },
+  { numero: 2, nome: 'Produção', definida: true },
   { numero: 3, nome: 'Etapa 3', definida: false },
   { numero: 4, nome: 'Etapa 4', definida: false },
 ];
@@ -95,4 +95,17 @@ export function BuscaFormulacao({ valor, aoEscolher, autoFocus }) {
       )}
     </div>
   );
+}
+
+// Matéria-prima necessária: quantidade da fórmula (por 1 unidade produzida) × quantidade a
+// produzir, subindo de unidade enquanto passar de 1000 (mg → g → kg, mL → L). Mesma regra do backend
+const CONVERSOES = { mg: { para: 'g', fator: 1000 }, g: { para: 'kg', fator: 1000 }, ml: { para: 'L', fator: 1000 } };
+export function necessidade(porUnidade, unidade, producao) {
+  let quantidade = Number(porUnidade) * Number(producao);
+  let un = (unidade || '').trim();
+  for (let c = CONVERSOES[un.toLowerCase()]; c && Math.abs(quantidade) >= c.fator; c = CONVERSOES[un.toLowerCase()]) {
+    quantidade /= c.fator;
+    un = c.para;
+  }
+  return { quantidade: Math.round(quantidade * 1000) / 1000, unidade: un };
 }

@@ -298,7 +298,8 @@ CREATE TABLE cliente_responsaveis (
 ) ENGINE=InnoDB;
 
 -- Pedidos: entrada em etapas, salva no meio (status + etapa onde parou).
--- Etapa 2: quantidade a produzir da formulação atual, em qualquer unidade.
+-- Etapa 2 (Produção): quantidade a produzir da formulação atual, em qualquer
+-- unidade; as quantidades da fórmula valem para 1 unidade produzida.
 -- Etapa 1: cliente do grupo e formulação (pode nascer só com o nome; a
 -- farmácia completa os ingredientes depois). Número sequencial por empresa.
 -- Cancelar é status, nunca exclusão.
@@ -369,5 +370,23 @@ CREATE TABLE pedido_amostras (
   FOREIGN KEY (pedido_id) REFERENCES pedidos(id) ON DELETE CASCADE,
   FOREIGN KEY (formulacao_id) REFERENCES formulacoes(id),
   FOREIGN KEY (envase_id) REFERENCES envases(id),
+  FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE SET NULL
+) ENGINE=InnoDB;
+
+-- Maquinário do pedido (etapa 2, Produção): máquinas da empresa do pedido que
+-- serão usadas. O rendimento nasce do cadastro da máquina e pode ser ajustado
+-- só para este pedido. Lista regravada a cada edição da etapa.
+CREATE TABLE pedido_maquinas (
+  id CHAR(36) NOT NULL PRIMARY KEY,
+  pedido_id CHAR(36) NOT NULL,
+  maquina_id CHAR(36) NOT NULL,
+  rendimento_pct DECIMAL(6,2) NOT NULL,
+  ordem INT NOT NULL DEFAULT 1,
+  usuario_id CHAR(36) NULL,
+  criado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_pedido_maquina (pedido_id, maquina_id),
+  CONSTRAINT ck_pedido_maquina_rendimento CHECK (rendimento_pct > 0 AND rendimento_pct <= 100),
+  FOREIGN KEY (pedido_id) REFERENCES pedidos(id) ON DELETE CASCADE,
+  FOREIGN KEY (maquina_id) REFERENCES maquinas(id),
   FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE SET NULL
 ) ENGINE=InnoDB;

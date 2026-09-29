@@ -4,7 +4,7 @@ import { ClipboardList } from 'lucide-react';
 import { SessaoContext } from '../App.jsx';
 import { api } from '../api.js';
 import { Badge, Campo, Carregando, Erro, Modal, Vazio, confirmar, fmtBRL, fmtData, fmtDataHora, fmtQtd, hoje, toast, useDados } from '../ui.jsx';
-import { BuscaFormulacao, ETAPAS, PODE_EDITAR_PEDIDOS, STATUS, Stepper, fmtNumero } from './pedidos-comum.jsx';
+import { BuscaFormulacao, ETAPAS, PODE_EDITAR_PEDIDOS, STATUS, Stepper, fmtNumero, necessidade } from './pedidos-comum.jsx';
 
 // Página do pedido, também para criar (/pedidos/novo): stepper com as etapas
 // no topo. Etapa 1: dados do pedido, histórico de formulações (a nova põe a
@@ -374,27 +374,52 @@ function FormAmostra({ p, amostra, aoFechar, aoSalvar }) {
   );
 }
 
-const UNIDADES_PRODUCAO = ['kg', 'g', 'L', 'mL', 'un'];
 
-// Etapa 2: quantidade a produzir da formulação aprovada na etapa anterior, em qualquer unidade
+const UNIDADES_PRODUCAO = ['un', 'kg', 'g', 'L', 'mL'];
+const assinatura = (lista) => JSON.stringify((lista || []).map((m) => [m.maquina_id, Number(m.rendimento_pct)]));
+
+// Etapa 2, Produção: quantidade a produzir, matérias-primas necessárias (fórmula por
+// 1 unidade × quantidade) e o maquinário, com o rendimento ajustável para este pedido
 function Etapa2({ p, podeEditar, recarregar, antesDeAvancar }) {
   const ativa = p.formulacoes.find((x) => x.ativa);
   const ingredientes = p.formulacao_ingredientes || [];
-  const [f, setF] = React.useState({ quantidade: p.quantidade_producao ?? '', unidade: p.unidade_producao || 'kg' });
+  const { dados: cadastro } = useDados(() => api(`/maquinas?empresa=${p.empresa_id}`).catch(() => []), [p.empresa_id]);
+  const [f, setF] = React.useState({
+    quantidade: p.quantidade_producao ?? '', unidade: p.unidade_producao || 'un',
+    maquinas: (p.maquinas || []).map((m) => ({ maquina_id: m.maquina_id, titulo: m.titulo, modelo: m.modelo, rendimento_padrao: m.rendimento_padrao, rendimento_pct: m.rendimento_pct })),
+  });
+  const [escolhida, setEscolhida] = React.useState('');
   const [erro, setErro] = React.useState(null);
   const [salvando, setSalvando] = React.useState(false);
   const mudar = (campo, valor) => setF((x) => ({ ...x, [campo]: valor }));
-  const alterado = String(f.quantidade) !== String(p.quantidade_producao ?? '') || f.unidade.trim() !== (p.unidade_producao || 'kg');
+  const producao = Number(f.quantidade) > 0 ? Number(f.quantidade) : 0;
+  const alterado = String(f.quantidade) !== String(p.quantidade_producao ?? '') || f.unidade.trim() !== (p.unidade_producao || 'un') || assinatura(f.maquinas) !== assinatura(p.maquinas);
+  const disponiveis = (cadastro || []).filter((m) => m.ativo && !f.maquinas.some((x) => x.maquina_id === m.id));
+
+  function adicionarMaquina() {
+    const m = (cadastro || []).find((x) => x.id === escolhida);
+    if (!m) return;
+    // O rendimento nasce do cadastro da máquina e pode ser ajustado só para este pedido
+    setF((x) => ({ ...x, maquinas: [...x.maquinas, { maquina_id: m.id, titulo: m.titulo, modelo: m.modelo, rendimento_padrao: m.rendimento_pct, rendimento_pct: m.rendimento_pct }] }));
+    setEscolhida('');
+  }
+  const mudarRendimento = (i, valor) => setF((x) => ({ ...x, maquinas: x.maquinas.map((m, j) => (j === i ? { ...m, rendimento_pct: valor } : m)) }));
+  const removerMaquina = (i) => setF((x) => ({ ...x, maquinas: x.maquinas.filter((_, j) => j !== i) }));
 
   async function salvar() {
     setErro(null);
     if (!(Number(f.quantidade) > 0)) { setErro('Informe a quantidade a produzir'); return false; }
     if (!f.unidade.trim()) { setErro('Informe a unidade'); return false; }
+    const fora = f.maquinas.find((m) => !(Number(m.rendimento_pct) > 0 && Number(m.rendimento_pct) <= 100));
+    if (fora) { setErro(`Rendimento de ${fora.titulo}: entre 0,01 e 100 %`); return false; }
     setSalvando(true);
     try {
-      await api(`/pedidos/${p.id}/producao`, { method: 'PUT', body: { quantidade: Number(f.quantidade), unidade: f.unidade.trim() } });
+      await api(`/pedidos/${p.id}/producao`, { method: 'PUT', body: {
+        quantidade: Number(f.quantidade), unidade: f.unidade.trim(),
+        maquinas: f.maquinas.map((m) => ({ maquina_id: m.maquina_id, rendimento_pct: Number(m.rendimento_pct) })),
+      } });
       recarregar();
-      toast.sucesso('Quantidade de produção salva');
+      toast.sucesso('Produção salva');
       return true;
     } catch (e) {
       setErro(e.message);
@@ -404,7 +429,7 @@ function Etapa2({ p, podeEditar, recarregar, antesDeAvancar }) {
     }
   }
 
-  // "Próxima etapa" salva a quantidade antes de sair, se ela mudou ou ainda não foi salva
+  // "Próxima etapa" salva antes de sair, se algo mudou ou a quantidade ainda não foi salva
   React.useEffect(() => {
     antesDeAvancar.current = podeEditar ? async () => (alterado || !(Number(p.quantidade_producao) > 0) ? salvar() : true) : null;
     return () => { antesDeAvancar.current = null; };
@@ -415,34 +440,83 @@ function Etapa2({ p, podeEditar, recarregar, antesDeAvancar }) {
       <Titulo>Formulação a produzir</Titulo>
       {!ativa ? <div className="alerta alerta-aviso">O pedido não tem formulação ativa: volte à etapa 1 e adicione uma.</div> : (
         <div className="alerta alerta-info">
-          <strong>{ativa.nome}</strong> · {ativa.aprovada_em ? `aprovada pelo cliente em ${fmtData(ativa.aprovada_em)}` : 'ainda sem a aprovação do cliente'} ·{' '}
-          {ingredientes.length ? `${ingredientes.length} ingrediente(s)` : 'sem ingredientes cadastrados: a farmácia precisa completar a fórmula'}
+          <strong>{ativa.nome}</strong> · {ativa.aprovada_em ? `aprovada pelo cliente em ${fmtData(ativa.aprovada_em)}` : 'ainda sem a aprovação do cliente'}
         </div>
       )}
-      {!!ingredientes.length && (
-        <div className="tabela-envolucro">
-          <table className="tabela">
-            <thead><tr><th className="num" style={{ width: 60 }}>Ordem</th><th>Matéria-prima</th><th className="num">Quantidade na fórmula</th></tr></thead>
-            <tbody>
-              {ingredientes.map((i) => (
-                <tr key={i.materia_prima_id}><td className="num">{i.ordem}</td><td className="negrito">{i.materia_prima}</td><td className="num">{fmtQtd(i.quantidade, 4)} {i.unidade}</td></tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-      <Titulo>Quantidade de produção</Titulo>
       <Erro msg={erro} />
       <div className="linha-campos">
         <Campo rotulo="Quantidade a produzir *" largura={220}>
           <input type="number" step="any" min="0" value={f.quantidade} onChange={(e) => mudar('quantidade', e.target.value)} readOnly={!podeEditar} autoFocus={podeEditar} />
         </Campo>
-        <Campo rotulo="Unidade *" largura={170} dica="kg, g, L, mL, un ou outra">
+        <Campo rotulo="Unidade *" largura={170} dica="un, kg, g, L, mL ou outra">
           <input list="unidades-producao" value={f.unidade} onChange={(e) => mudar('unidade', e.target.value)} readOnly={!podeEditar} />
           <datalist id="unidades-producao">{UNIDADES_PRODUCAO.map((u) => <option key={u} value={u} />)}</datalist>
         </Campo>
       </div>
-      {podeEditar && <button className="botao botao-secundario" disabled={salvando || !alterado} onClick={salvar}>{salvando ? 'Salvando…' : 'Salvar quantidade'}</button>}
+
+      <Titulo>Matérias-primas necessárias</Titulo>
+      {!ingredientes.length ? (
+        <div className="alerta alerta-aviso">A formulação ainda não tem ingredientes: a farmácia precisa completar a fórmula em Cadastros › Formulações para a lista aparecer.</div>
+      ) : (
+        <>
+          <div className="alerta alerta-info">As quantidades da fórmula valem para <strong>1 unidade</strong> produzida. O necessário é a quantidade da fórmula vezes a quantidade a produzir.</div>
+          <div className="tabela-envolucro">
+            <table className="tabela">
+              <thead><tr><th>Matéria-prima</th><th className="num">Na fórmula (por 1 unidade)</th><th className="num">Necessário{producao ? ` para ${fmtQtd(producao)} ${f.unidade}` : ''}</th></tr></thead>
+              <tbody>
+                {ingredientes.map((i) => {
+                  const n = producao ? necessidade(i.quantidade, i.unidade, producao) : null;
+                  return (
+                    <tr key={i.materia_prima_id}>
+                      <td className="negrito">{i.materia_prima}</td>
+                      <td className="num">{fmtQtd(i.quantidade, 4)} {i.unidade}</td>
+                      <td className="num negrito">{n ? `${fmtQtd(n.quantidade)} ${n.unidade}` : <span className="texto-suave">informe a quantidade</span>}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
+      <Titulo>Maquinário</Titulo>
+      <div className="alerta alerta-info">Máquinas de {p.empresa_nome} que serão usadas. O rendimento vem do cadastro da máquina e pode ser ajustado só para este pedido.</div>
+      {!f.maquinas.length ? <Vazio msg="Nenhuma máquina no pedido" /> : (
+        <div className="tabela-envolucro">
+          <table className="tabela">
+            <thead><tr><th>Máquina</th><th>Modelo</th><th className="num">Rendimento do cadastro</th><th className="num">Rendimento neste pedido (%)</th>{podeEditar && <th className="acoes">Ações</th>}</tr></thead>
+            <tbody>
+              {f.maquinas.map((m, i) => (
+                <tr key={m.maquina_id}>
+                  <td className="negrito">{m.titulo}</td>
+                  <td>{m.modelo || '—'}</td>
+                  <td className="num">{fmtQtd(m.rendimento_padrao, 2)} %</td>
+                  <td className="num">
+                    {podeEditar
+                      ? <input type="number" step="0.01" min="0.01" max="100" value={m.rendimento_pct} onChange={(e) => mudarRendimento(i, e.target.value)} style={{ width: 110, textAlign: 'right' }} />
+                      : `${fmtQtd(m.rendimento_pct, 2)} %`}
+                    {Number(m.rendimento_pct) !== Number(m.rendimento_padrao) && <> <Badge cor="amarelo">ajustado</Badge></>}
+                  </td>
+                  {podeEditar && <td className="acoes"><button type="button" className="botao botao-perigo botao-mini" onClick={() => removerMaquina(i)}>Remover</button></td>}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {podeEditar && (
+        <div className="linha-campos" style={{ alignItems: 'flex-end', marginTop: 8 }}>
+          <Campo rotulo="Adicionar máquina" dica={disponiveis.length ? undefined : 'Todas as máquinas ativas desta empresa já estão no pedido, ou não há máquinas cadastradas'}>
+            <select value={escolhida} onChange={(e) => setEscolhida(e.target.value)} disabled={!disponiveis.length}>
+              <option value="">Escolha…</option>
+              {disponiveis.map((m) => <option key={m.id} value={m.id}>{m.titulo}{m.modelo ? ` · ${m.modelo}` : ''} — rendimento {fmtQtd(m.rendimento_pct, 2)} %</option>)}
+            </select>
+          </Campo>
+          <button type="button" className="botao botao-secundario" style={{ marginBottom: 10 }} disabled={!escolhida} onClick={adicionarMaquina}>+ Adicionar</button>
+        </div>
+      )}
+      {podeEditar && <button className="botao botao-secundario" style={{ marginTop: 6 }} disabled={salvando || !alterado} onClick={salvar}>{salvando ? 'Salvando…' : 'Salvar produção'}</button>}
     </>
   );
 }

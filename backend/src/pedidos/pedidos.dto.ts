@@ -1,10 +1,11 @@
-import { IsBoolean, IsIn, IsInt, IsNumber, IsOptional, IsPositive, IsString, IsUUID, Length, Matches, Max, MaxLength, Min } from 'class-validator';
+import { Type } from 'class-transformer';
+import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsInt, IsNumber, IsOptional, IsPositive, IsString, IsUUID, Length, Matches, Max, MaxLength, Min, ValidateNested } from 'class-validator';
 
 // Etapas do pedido, na ordem. As não definidas já aparecem no stepper e ganham
 // conteúdo conforme forem desenhadas
 export const ETAPAS = [
   { numero: 1, nome: 'Formulação e amostras', definida: true },
-  { numero: 2, nome: 'Quantidade de produção', definida: true },
+  { numero: 2, nome: 'Produção', definida: true },
   { numero: 3, nome: 'Etapa 3', definida: false },
   { numero: 4, nome: 'Etapa 4', definida: false },
 ];
@@ -88,11 +89,26 @@ export class AmostraDto {
   observacoes?: string;
 }
 
-// Etapa 2: quantidade a produzir da formulação atual, na unidade que a empresa usar (kg, g, L, mL, un…)
+// Máquina usada no pedido. Sem rendimento informado, vale o do cadastro da máquina
+export class MaquinaPedidoDto {
+  @IsUUID('4', { message: 'Máquina inválida' })
+  maquina_id: string;
+
+  @IsOptional() @IsNumber({ maxDecimalPlaces: 2 }, { message: 'Rendimento deve ser um número (%)' })
+  @Min(0.01, { message: 'Rendimento: entre 0,01 e 100 %' }) @Max(100, { message: 'Rendimento: entre 0,01 e 100 %' })
+  rendimento_pct?: number;
+}
+
+// Etapa 2 (Produção): quantidade a produzir da formulação atual, na unidade que a empresa usar,
+// e o maquinário. Sem a lista de máquinas, a que já está no pedido é mantida
 export class ProducaoDto {
   @IsNumber({ maxDecimalPlaces: 3 }, { message: 'Quantidade deve ser um número (até 3 casas)' }) @IsPositive({ message: 'Quantidade deve ser maior que zero' })
   quantidade: number;
 
   @IsString({ message: 'Informe a unidade' }) @Length(1, 20, { message: 'Unidade: entre 1 e 20 caracteres (kg, L, mL, un…)' })
   unidade: string;
+
+  @IsOptional() @IsArray({ message: 'Máquinas: lista' }) @ArrayMaxSize(30, { message: 'No máximo 30 máquinas' })
+  @ValidateNested({ each: true }) @Type(() => MaquinaPedidoDto)
+  maquinas?: MaquinaPedidoDto[];
 }
