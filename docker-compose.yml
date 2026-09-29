@@ -12,7 +12,6 @@ services:
       - "3308:3306"
     volumes:
       - scientia_saas_mysql:/var/lib/mysql
-      - ./mysql/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uscientia", "-pscientia123"]
       interval: 5s

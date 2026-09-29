@@ -12,7 +12,13 @@ async function bootstrap() {
   // Campo fora do DTO é recusado: em SaaS, entrada livre é porta para problema
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
   app.useGlobalFilters(new ErrosFilter());
-  await app.listen(env.PORT, '0.0.0.0');
-  console.log(`[scientia-saas] API ouvindo em http://0.0.0.0:${env.PORT}/api (${env.producao ? 'produção' : 'desenvolvimento'})`);
+  // '::' aceita IPv6 e IPv4: a rede privada do Railway fala IPv6. Sem IPv6 no ambiente, cai para IPv4
+  try {
+    await app.listen(env.PORT, '::');
+  } catch (e: any) {
+    if (e?.code !== 'EAFNOSUPPORT' && e?.code !== 'EADDRNOTAVAIL') throw e;
+    await app.listen(env.PORT, '0.0.0.0');
+  }
+  console.log(`[scientia-saas] API ouvindo em http://[::]:${env.PORT}/api (${env.producao ? 'produção' : 'desenvolvimento'})`);
 }
 bootstrap();

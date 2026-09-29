@@ -53,14 +53,41 @@ backend/src
   painel/      resumo da tela inicial por visão
   auditoria/   trilha de auditoria (global)
   shared/      funções puras de cálculo (com testes), ids, DTOs comuns, filtro de erros
-  db/          pool MySQL
+  db/          pool MySQL e migrações do schema, aplicadas na subida
 frontend/src
   App.jsx      rota pública (entrar) e a área logada
   Shell.jsx    menu por visão, seletor de empresa, cabeçalho
   pages/       Dashboard, Pedidos, Clientes, Matérias-primas, Envase, Formulações, Maquinário, Logística, Mão de obra, Estoque, Documentos, Filiais, Usuários, admin/Empresas, admin/Usuários, Login
-mysql/init     schema inicial (só roda em volume novo)
-mysql/migrations  scripts idempotentes, aplicados em produção antes do deploy
+backend/migrations  migrações do schema em ordem de nome (0001-baseline.sql é a base); a API aplica na subida
 ```
+
+## Deploy no Railway
+
+Três serviços no mesmo projeto: **MySQL** (modelo do Railway, com volume), **backend** e **frontend**. Os dois últimos ficam ligados a este repositório com *Root Directory* `/backend` e `/frontend`; cada pasta tem o seu `Dockerfile` e `railway.json`. O push na `main` dispara o deploy.
+
+O banco não tem passo manual: na subida a API aplica as migrações de `backend/migrations` e cria o primeiro admin.
+
+Variáveis do **backend**:
+
+| Variável | Valor |
+|---|---|
+| `PORT` | `4000` |
+| `DB_HOST` | `${{MySQL.MYSQLHOST}}` |
+| `DB_PORT` | `${{MySQL.MYSQLPORT}}` |
+| `DB_USER` | `${{MySQL.MYSQLUSER}}` |
+| `DB_PASSWORD` | `${{MySQL.MYSQLPASSWORD}}` |
+| `DB_NAME` | `${{MySQL.MYSQLDATABASE}}` |
+| `JWT_SECRET` | segredo longo e aleatório. Obrigatório: sem ele a API não sobe |
+| `ADMIN_EMAIL` | e-mail do primeiro admin |
+| `ADMIN_SENHA` | senha do primeiro admin. Só é usada enquanto não existe nenhum admin |
+
+Variáveis do **frontend**:
+
+| Variável | Valor |
+|---|---|
+| `BACKEND_URL` | `http://${{Nome do serviço backend.RAILWAY_PRIVATE_DOMAIN}}:4000` |
+
+`MySQL` e o nome do backend, nas referências, são os nomes dos serviços no projeto. O `PORT` do frontend é o Railway que injeta. Só o frontend precisa de domínio público (Settings › Networking › Generate Domain): o navegador fala com `/api` no próprio domínio e o nginx repassa ao backend pela rede privada, que usa IPv6, por isso a API escuta em `::`.
 
 ## Próximas fases
 

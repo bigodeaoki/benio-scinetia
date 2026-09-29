@@ -1,5 +1,5 @@
 -- =====================================================================
--- SCIENTIA SaaS — schema v1 (escopo)
+-- SCIENTIA SaaS — migração 0001: base do schema
 --
 -- Três visões:
 --   admin  — operador do SaaS, sem empresa: cadastra empresas (matriz) e seus
@@ -10,11 +10,13 @@
 --
 -- Convenção das entidades: id UUID gerado na aplicação, criado_em e
 -- atualizado_em mantidos pelo banco, sem exclusão física (ativo).
--- Só roda em volume novo; mudanças posteriores entram em mysql/migrations/.
+-- Aplicada pela API na subida (src/db/migracoes.ts). Idempotente: pode rodar
+-- sobre um banco que já tem as tabelas. Depois de ir para produção não se
+-- edita mais: cada mudança de schema vira um arquivo novo (0002-..., 0003-...).
 -- =====================================================================
 SET NAMES utf8mb4;
 
-CREATE TABLE empresas (
+CREATE TABLE IF NOT EXISTS empresas (
   id CHAR(36) NOT NULL PRIMARY KEY,
   nome VARCHAR(150) NOT NULL,
   cnpj VARCHAR(14) NULL,
@@ -33,7 +35,7 @@ CREATE TABLE empresas (
   FOREIGN KEY (empresa_id) REFERENCES empresas(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
-CREATE TABLE usuarios (
+CREATE TABLE IF NOT EXISTS usuarios (
   id CHAR(36) NOT NULL PRIMARY KEY,
   empresa_id CHAR(36) NULL,                              -- NULL só para o admin global
   nome VARCHAR(120) NOT NULL,
@@ -52,7 +54,7 @@ CREATE TABLE usuarios (
 ) ENGINE=InnoDB;
 
 -- Trilha de auditoria: quem fez o quê, em qual empresa de qual grupo (matriz)
-CREATE TABLE auditoria (
+CREATE TABLE IF NOT EXISTS auditoria (
   id BIGINT AUTO_INCREMENT PRIMARY KEY,
   matriz_id CHAR(36) NULL,                               -- grupo onde aconteceu; NULL em ações globais do admin
   empresa_id CHAR(36) NULL,
@@ -71,7 +73,7 @@ CREATE TABLE auditoria (
 -- Matérias-primas: insumos de cada empresa. Cada uma é de uma empresa (matriz
 -- ou filial) e carrega o vínculo com a matriz do grupo; a filial enxerga as
 -- suas e as da matriz, e só a empresa dona altera a sua.
-CREATE TABLE materias_primas (
+CREATE TABLE IF NOT EXISTS materias_primas (
   id CHAR(36) NOT NULL PRIMARY KEY,
   empresa_id CHAR(36) NOT NULL,
   matriz_id CHAR(36) NOT NULL,                          -- matriz do grupo (vínculo para as filiais enxergarem)
@@ -90,7 +92,7 @@ CREATE TABLE materias_primas (
 -- Envase: itens de envasamento (frascos, tampas, rótulos, caixas...). Sem
 -- quantidade aqui: quem controla é o estoque, por entradas de compra. Mesma
 -- visibilidade das matérias-primas (a filial enxerga os da matriz).
-CREATE TABLE envases (
+CREATE TABLE IF NOT EXISTS envases (
   id CHAR(36) NOT NULL PRIMARY KEY,
   empresa_id CHAR(36) NOT NULL,
   matriz_id CHAR(36) NOT NULL,
@@ -108,7 +110,7 @@ CREATE TABLE envases (
 -- Estoque: entradas de compra por empresa, de matéria-prima OU de envase
 -- (exatamente um dos dois). Cada entrada é um lote: quantidade na unidade
 -- informada, data da compra e de vencimento. Entrada errada é cancelada.
-CREATE TABLE estoque (
+CREATE TABLE IF NOT EXISTS estoque (
   id CHAR(36) NOT NULL PRIMARY KEY,
   empresa_id CHAR(36) NOT NULL,
   materia_prima_id CHAR(36) NULL,
@@ -132,7 +134,7 @@ CREATE TABLE estoque (
 -- Uma formulação é uma lista ordenada de matérias-primas com quantidade e
 -- unidade. Como as matérias-primas, carrega o vínculo com a matriz: a filial
 -- enxerga as fórmulas da matriz e só a empresa dona altera a sua.
-CREATE TABLE formulacoes (
+CREATE TABLE IF NOT EXISTS formulacoes (
   id CHAR(36) NOT NULL PRIMARY KEY,
   empresa_id CHAR(36) NOT NULL,
   matriz_id CHAR(36) NOT NULL,
@@ -147,7 +149,7 @@ CREATE TABLE formulacoes (
   FOREIGN KEY (matriz_id) REFERENCES empresas(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
-CREATE TABLE formulacao_itens (
+CREATE TABLE IF NOT EXISTS formulacao_itens (
   formulacao_id CHAR(36) NOT NULL,
   materia_prima_id CHAR(36) NOT NULL,
   ordem INT NOT NULL DEFAULT 1,                          -- sequência de adição
@@ -161,7 +163,7 @@ CREATE TABLE formulacao_itens (
 -- Maquinário: máquinas e equipamentos de cada empresa (bem físico, não é
 -- compartilhado com as filiais). Custo por hora em R$ e rendimento em %,
 -- usado como fator de perda como no v1 (custo / (rendimento/100)).
-CREATE TABLE maquinas (
+CREATE TABLE IF NOT EXISTS maquinas (
   id CHAR(36) NOT NULL PRIMARY KEY,
   empresa_id CHAR(36) NOT NULL,
   titulo VARCHAR(150) NOT NULL,
@@ -182,7 +184,7 @@ CREATE TABLE maquinas (
 -- de transporte; o tipo é texto livre). Bem físico como o maquinário: a
 -- filial não enxerga os da matriz. Custo por hora em R$; status operacional
 -- separado do `ativo` (que é a exclusão lógica).
-CREATE TABLE veiculos (
+CREATE TABLE IF NOT EXISTS veiculos (
   id CHAR(36) NOT NULL PRIMARY KEY,
   empresa_id CHAR(36) NOT NULL,
   tipo VARCHAR(40) NOT NULL,
@@ -207,7 +209,7 @@ CREATE TABLE veiculos (
 -- livre (financeiro, marketing, produção…) e custo por hora em R$ para o
 -- custeio. Não é o login do sistema (usuarios): nem todo funcionário acessa
 -- o app. Status é a situação de RH; `ativo` é a exclusão lógica.
-CREATE TABLE funcionarios (
+CREATE TABLE IF NOT EXISTS funcionarios (
   id CHAR(36) NOT NULL PRIMARY KEY,
   empresa_id CHAR(36) NOT NULL,
   nome VARCHAR(150) NOT NULL,
@@ -231,7 +233,7 @@ CREATE TABLE funcionarios (
 -- até 10 MB) e todo o grupo enxerga. Dois status de download: viram
 -- verdadeiros quando alguém da matriz, ou de alguma filial, baixa o arquivo
 -- (a data guardada é a do primeiro download de cada lado).
-CREATE TABLE documentos (
+CREATE TABLE IF NOT EXISTS documentos (
   id CHAR(36) NOT NULL PRIMARY KEY,
   matriz_id CHAR(36) NOT NULL,
   empresa_id CHAR(36) NOT NULL,
@@ -258,7 +260,7 @@ CREATE TABLE documentos (
 -- Clientes: cada empresa cadastra os seus, e todo o grupo (matriz e filiais)
 -- enxerga. Altera quem tem a empresa dona no escopo. CNPJ só com os 14
 -- caracteres (numérico ou alfanumérico), único no grupo quando informado.
-CREATE TABLE clientes (
+CREATE TABLE IF NOT EXISTS clientes (
   id CHAR(36) NOT NULL PRIMARY KEY,
   matriz_id CHAR(36) NOT NULL,
   empresa_id CHAR(36) NOT NULL,
@@ -286,7 +288,7 @@ CREATE TABLE clientes (
 ) ENGINE=InnoDB;
 
 -- Responsáveis (contatos) do cliente, na ordem informada; regravados a cada edição
-CREATE TABLE cliente_responsaveis (
+CREATE TABLE IF NOT EXISTS cliente_responsaveis (
   cliente_id CHAR(36) NOT NULL,
   ordem INT NOT NULL,
   nome VARCHAR(150) NOT NULL,
@@ -303,7 +305,7 @@ CREATE TABLE cliente_responsaveis (
 -- Etapa 1: cliente do grupo e formulação (pode nascer só com o nome; a
 -- farmácia completa os ingredientes depois). Número sequencial por empresa.
 -- Cancelar é status, nunca exclusão.
-CREATE TABLE pedidos (
+CREATE TABLE IF NOT EXISTS pedidos (
   id CHAR(36) NOT NULL PRIMARY KEY,
   matriz_id CHAR(36) NOT NULL,
   empresa_id CHAR(36) NOT NULL,
@@ -331,7 +333,7 @@ CREATE TABLE pedidos (
 -- (ex.: o cliente não aprovou a amostra), a anterior entra em desuso aqui,
 -- sem mexer no cadastro de formulações. A aprovação do cliente (data e quem
 -- confirmou) fica na formulação ativa ao avançar da etapa 1.
-CREATE TABLE pedido_formulacoes (
+CREATE TABLE IF NOT EXISTS pedido_formulacoes (
   id CHAR(36) NOT NULL PRIMARY KEY,
   pedido_id CHAR(36) NOT NULL,
   formulacao_id CHAR(36) NOT NULL,
@@ -351,7 +353,7 @@ CREATE TABLE pedido_formulacoes (
 
 -- Envios de amostra do pedido: quantidade da formulação, embalagens usadas e
 -- valor da logística. Gasto informativo, não entra no custo do pedido.
-CREATE TABLE pedido_amostras (
+CREATE TABLE IF NOT EXISTS pedido_amostras (
   id CHAR(36) NOT NULL PRIMARY KEY,
   pedido_id CHAR(36) NOT NULL,
   formulacao_id CHAR(36) NOT NULL,
@@ -376,7 +378,7 @@ CREATE TABLE pedido_amostras (
 -- Maquinário do pedido (etapa 2, Produção): máquinas da empresa do pedido que
 -- serão usadas. O rendimento nasce do cadastro da máquina e pode ser ajustado
 -- só para este pedido. Lista regravada a cada edição da etapa.
-CREATE TABLE pedido_maquinas (
+CREATE TABLE IF NOT EXISTS pedido_maquinas (
   id CHAR(36) NOT NULL PRIMARY KEY,
   pedido_id CHAR(36) NOT NULL,
   maquina_id CHAR(36) NOT NULL,

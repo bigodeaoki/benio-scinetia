@@ -1,12 +1,13 @@
 import { Global, Module } from '@nestjs/common';
 import * as mysql from 'mysql2/promise';
 import { env } from '../config/env';
+import { aplicarMigracoes } from './migracoes';
 
 export const POOL = 'POOL';
 export type Pool = mysql.Pool;
 
-// Pool único da aplicação. Espera o MySQL subir (docker compose) antes de
-// liberar o restante dos módulos. DECIMAL chega como número JS.
+// Pool único da aplicação. Espera o MySQL subir, aplica as migrações do schema e
+// só então libera o restante dos módulos. DECIMAL chega como número JS.
 async function criarPool(): Promise<mysql.Pool> {
   const pool = mysql.createPool({
     host: env.DB_HOST,
@@ -24,13 +25,15 @@ async function criarPool(): Promise<mysql.Pool> {
     try {
       await pool.query('SELECT 1');
       console.log('[scientia-saas] MySQL conectado');
-      return pool;
+      break;
     } catch (e) {
       if (tentativa >= 30) throw e;
       if (tentativa % 5 === 1) console.log(`[scientia-saas] aguardando MySQL... (${tentativa})`);
       await new Promise((r) => setTimeout(r, 2000));
     }
   }
+  await aplicarMigracoes(pool);
+  return pool;
 }
 
 @Global()

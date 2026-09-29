@@ -12,11 +12,12 @@ function obrigatoria(nome: string, padraoDev: string): string {
 export const env = {
   producao,
   PORT: Number(process.env.PORT || 4000),
-  DB_HOST: process.env.DB_HOST || 'localhost',
-  DB_PORT: Number(process.env.DB_PORT || 3306),
-  DB_USER: process.env.DB_USER || 'scientia',
-  DB_PASSWORD: process.env.DB_PASSWORD || 'scientia123',
-  DB_NAME: process.env.DB_NAME || 'scientia',
+  // Banco: DB_* ou, na falta, os nomes que o MySQL do Railway expõe (MYSQLHOST, MYSQLPORT...)
+  DB_HOST: process.env.DB_HOST || process.env.MYSQLHOST || 'localhost',
+  DB_PORT: Number(process.env.DB_PORT || process.env.MYSQLPORT || 3306),
+  DB_USER: process.env.DB_USER || process.env.MYSQLUSER || 'scientia',
+  DB_PASSWORD: process.env.DB_PASSWORD || process.env.MYSQLPASSWORD || 'scientia123',
+  DB_NAME: process.env.DB_NAME || process.env.MYSQLDATABASE || 'scientia',
   JWT_SECRET: obrigatoria('JWT_SECRET', 'segredo-de-desenvolvimento'),
   JWT_EXPIRA: process.env.JWT_EXPIRA || '12h',
   // Primeiro admin global: criado na subida se não existir nenhum. Em produção,
