@@ -16,6 +16,8 @@ export default function PedidoDetalhe() {
   const s = React.useContext(SessaoContext);
   const { dados: p, erro, carregando, recarregar } = useDados(() => (novo ? Promise.resolve(null) : api(`/pedidos/${id}`)), [id, s.empresaId]);
   const [vista, setVista] = React.useState(null);
+  // A etapa aberta registra aqui o que precisa salvar antes de avançar
+  const antesDeAvancar = React.useRef(null);
   const etapaVista = novo ? 1 : vista || p?.etapa || 1;
   const papelEdita = PODE_EDITAR_PEDIDOS.includes(s.usuario?.papel) && (novo || !!p?.editavel);
   const podeEditar = papelEdita && (novo || p?.status === 'rascunho');
@@ -26,6 +28,7 @@ export default function PedidoDetalhe() {
   async function avancar() {
     const n = etapaVista + 1;
     if (n > ETAPAS.length) return;
+    if (podeEditar && antesDeAvancar.current && !(await antesDeAvancar.current())) return;
     if (!podeEditar || n <= p.etapa) { setVista(n); return; }
     let clienteAprovou = false;
     if (etapaVista === 1) {
@@ -91,6 +94,8 @@ export default function PedidoDetalhe() {
             aoCriar={(criado) => { toast.sucesso(`Pedido ${fmtNumero(criado.numero)} criado`); navegar(`/pedidos/${criado.id}`, { replace: true }); }} />
           {!novo && <Etapa1 p={p} podeEditar={podeEditar} recarregar={recarregar} empresaDe={empresaDe} />}
         </>
+      ) : etapaVista === 2 ? (
+        <Etapa2 key={p.id} p={p} podeEditar={podeEditar} recarregar={recarregar} antesDeAvancar={antesDeAvancar} />
       ) : <div className="vazio">Etapa {etapaVista} · {ETAPAS[etapaVista - 1]?.nome}: conteúdo em definição.</div>}
       {!novo && (
         <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 18 }}>
@@ -366,5 +371,78 @@ function FormAmostra({ p, amostra, aoFechar, aoSalvar }) {
         <Campo rotulo="Observações"><input value={f.observacoes} onChange={(e) => mudar('observacoes', e.target.value)} /></Campo>
       </div>
     </Modal>
+  );
+}
+
+const UNIDADES_PRODUCAO = ['kg', 'g', 'L', 'mL', 'un'];
+
+// Etapa 2: quantidade a produzir da formulação aprovada na etapa anterior, em qualquer unidade
+function Etapa2({ p, podeEditar, recarregar, antesDeAvancar }) {
+  const ativa = p.formulacoes.find((x) => x.ativa);
+  const ingredientes = p.formulacao_ingredientes || [];
+  const [f, setF] = React.useState({ quantidade: p.quantidade_producao ?? '', unidade: p.unidade_producao || 'kg' });
+  const [erro, setErro] = React.useState(null);
+  const [salvando, setSalvando] = React.useState(false);
+  const mudar = (campo, valor) => setF((x) => ({ ...x, [campo]: valor }));
+  const alterado = String(f.quantidade) !== String(p.quantidade_producao ?? '') || f.unidade.trim() !== (p.unidade_producao || 'kg');
+
+  async function salvar() {
+    setErro(null);
+    if (!(Number(f.quantidade) > 0)) { setErro('Informe a quantidade a produzir'); return false; }
+    if (!f.unidade.trim()) { setErro('Informe a unidade'); return false; }
+    setSalvando(true);
+    try {
+      await api(`/pedidos/${p.id}/producao`, { method: 'PUT', body: { quantidade: Number(f.quantidade), unidade: f.unidade.trim() } });
+      recarregar();
+      toast.sucesso('Quantidade de produção salva');
+      return true;
+    } catch (e) {
+      setErro(e.message);
+      return false;
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  // "Próxima etapa" salva a quantidade antes de sair, se ela mudou ou ainda não foi salva
+  React.useEffect(() => {
+    antesDeAvancar.current = podeEditar ? async () => (alterado || !(Number(p.quantidade_producao) > 0) ? salvar() : true) : null;
+    return () => { antesDeAvancar.current = null; };
+  });
+
+  return (
+    <>
+      <Titulo>Formulação a produzir</Titulo>
+      {!ativa ? <div className="alerta alerta-aviso">O pedido não tem formulação ativa: volte à etapa 1 e adicione uma.</div> : (
+        <div className="alerta alerta-info">
+          <strong>{ativa.nome}</strong> · {ativa.aprovada_em ? `aprovada pelo cliente em ${fmtData(ativa.aprovada_em)}` : 'ainda sem a aprovação do cliente'} ·{' '}
+          {ingredientes.length ? `${ingredientes.length} ingrediente(s)` : 'sem ingredientes cadastrados: a farmácia precisa completar a fórmula'}
+        </div>
+      )}
+      {!!ingredientes.length && (
+        <div className="tabela-envolucro">
+          <table className="tabela">
+            <thead><tr><th className="num" style={{ width: 60 }}>Ordem</th><th>Matéria-prima</th><th className="num">Quantidade na fórmula</th></tr></thead>
+            <tbody>
+              {ingredientes.map((i) => (
+                <tr key={i.materia_prima_id}><td className="num">{i.ordem}</td><td className="negrito">{i.materia_prima}</td><td className="num">{fmtQtd(i.quantidade, 4)} {i.unidade}</td></tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <Titulo>Quantidade de produção</Titulo>
+      <Erro msg={erro} />
+      <div className="linha-campos">
+        <Campo rotulo="Quantidade a produzir *" largura={220}>
+          <input type="number" step="any" min="0" value={f.quantidade} onChange={(e) => mudar('quantidade', e.target.value)} readOnly={!podeEditar} autoFocus={podeEditar} />
+        </Campo>
+        <Campo rotulo="Unidade *" largura={170} dica="kg, g, L, mL, un ou outra">
+          <input list="unidades-producao" value={f.unidade} onChange={(e) => mudar('unidade', e.target.value)} readOnly={!podeEditar} />
+          <datalist id="unidades-producao">{UNIDADES_PRODUCAO.map((u) => <option key={u} value={u} />)}</datalist>
+        </Campo>
+      </div>
+      {podeEditar && <button className="botao botao-secundario" disabled={salvando || !alterado} onClick={salvar}>{salvando ? 'Salvando…' : 'Salvar quantidade'}</button>}
+    </>
   );
 }

@@ -298,6 +298,7 @@ CREATE TABLE cliente_responsaveis (
 ) ENGINE=InnoDB;
 
 -- Pedidos: entrada em etapas, salva no meio (status + etapa onde parou).
+-- Etapa 2: quantidade a produzir da formulação atual, em qualquer unidade.
 -- Etapa 1: cliente do grupo e formulação (pode nascer só com o nome; a
 -- farmácia completa os ingredientes depois). Número sequencial por empresa.
 -- Cancelar é status, nunca exclusão.
@@ -310,6 +311,8 @@ CREATE TABLE pedidos (
   formulacao_id CHAR(36) NULL,
   status ENUM('rascunho','concluido','cancelado') NOT NULL DEFAULT 'rascunho',
   etapa TINYINT NOT NULL DEFAULT 1,
+  quantidade_producao DECIMAL(14,3) NULL,
+  unidade_producao VARCHAR(20) NULL,
   observacoes VARCHAR(255) NULL,
   usuario_id CHAR(36) NULL,
   criado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,

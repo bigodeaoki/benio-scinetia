@@ -6,12 +6,12 @@ import { EnvasesService } from '../envases/envases.service';
 import { FormulacoesService } from '../formulacoes/formulacoes.service';
 import { MateriasService } from '../materias/materias.service';
 import { novoId } from '../shared/ids';
-import { AmostraDto, PedidoDto, TrocaFormulacaoDto } from './pedidos.dto';
+import { AmostraDto, PedidoDto, ProducaoDto, TrocaFormulacaoDto } from './pedidos.dto';
 
 const COLUNAS = `p.id, p.matriz_id, p.empresa_id, e.nome AS empresa_nome, p.numero, p.cliente_id, c.razao_social AS cliente_nome, c.nome_fantasia AS cliente_fantasia,
   p.formulacao_id, f.nome AS formulacao_nome, f.empresa_id AS formulacao_empresa_id,
   (SELECT COUNT(*) FROM formulacao_itens i WHERE i.formulacao_id = p.formulacao_id) AS formulacao_itens,
-  p.status, p.etapa, p.observacoes, p.usuario_id, u.nome AS usuario_nome, p.criado_em, p.atualizado_em, IF(p.empresa_id IN (?), 1, 0) AS editavel`;
+  p.status, p.etapa, p.quantidade_producao, p.unidade_producao, p.observacoes, p.usuario_id, u.nome AS usuario_nome, p.criado_em, p.atualizado_em, IF(p.empresa_id IN (?), 1, 0) AS editavel`;
 const JUNCOES = `FROM pedidos p JOIN empresas e ON e.id = p.empresa_id JOIN clientes c ON c.id = p.cliente_id
   LEFT JOIN formulacoes f ON f.id = p.formulacao_id LEFT JOIN usuarios u ON u.id = p.usuario_id`;
 
@@ -66,7 +66,16 @@ export class PedidosService {
         WHERE a.pedido_id = ? ORDER BY a.ativo DESC, a.data_envio DESC, a.criado_em DESC`,
       [id],
     );
-    return { ...pedido, formulacoes, amostras, amostras_resumo: this.resumoAmostras(amostras) };
+    // Ingredientes da formulação atual, para a etapa de produção
+    const [ingredientes]: any = pedido.formulacao_id
+      ? await this.pool.query(
+          `SELECT i.ordem, i.materia_prima_id, m.nome AS materia_prima, i.quantidade, i.unidade
+             FROM formulacao_itens i JOIN materias_primas m ON m.id = i.materia_prima_id
+            WHERE i.formulacao_id = ? ORDER BY i.ordem, m.nome`,
+          [pedido.formulacao_id],
+        )
+      : [[]];
+    return { ...pedido, formulacoes, amostras, amostras_resumo: this.resumoAmostras(amostras), formulacao_ingredientes: ingredientes };
   }
 
   // Só as ativas: nº de envios, logística total, embalagens e quantidade por unidade
@@ -163,6 +172,20 @@ export class PedidosService {
   }
 
 
+  // Etapa 2: quantidade a produzir da formulação atual do pedido, na unidade que a empresa usar
+  async definirProducao(escopo: EscopoSessao, empresaId: string, usuarioId: string, id: string, dto: ProducaoDto) {
+    const atual = await this.exigirRascunho(escopo, empresaId, id);
+    if (!atual.formulacao_id) throw new BadRequestException('O pedido ainda não tem formulação: adicione uma antes de definir a produção');
+    const unidade = dto.unidade.trim();
+    if (!unidade) throw new BadRequestException('Informe a unidade');
+    await this.pool.query('UPDATE pedidos SET quantidade_producao = ?, unidade_producao = ? WHERE id = ?', [dto.quantidade, unidade, id]);
+    await this.auditoria.registrar(null, {
+      matriz_id: atual.matriz_id, empresa_id: atual.empresa_id, usuario_id: usuarioId, acao: 'pedido.producao_definida', entidade: 'pedidos', entidade_id: id,
+      detalhes: { numero: atual.numero, quantidade: dto.quantidade, unidade, formulacao_id: atual.formulacao_id },
+    });
+    return this.detalhar(escopo, empresaId, id);
+  }
+
   // Etapa onde o usuário parou (o stepper), só em rascunho. Para sair da etapa 1 é preciso ter
   // formulação ativa e confirmar que o cliente a aprovou; a aprovação fica registrada nela
   async definirEtapa(escopo: EscopoSessao, empresaId: string, usuarioId: string, id: string, etapa: number, clienteAprovou = false) {
@@ -180,6 +203,7 @@ export class PedidosService {
         });
       }
     }
+    if (etapa > 2 && !(Number(atual.quantidade_producao) > 0)) throw new BadRequestException('Informe a quantidade de produção para avançar');
     if (etapa !== atual.etapa) {
       await this.pool.query('UPDATE pedidos SET etapa = ? WHERE id = ?', [etapa, id]);
       await this.auditoria.registrar(null, {

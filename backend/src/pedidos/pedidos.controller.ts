@@ -2,7 +2,7 @@ import { BadRequestException, Body, Controller, Get, Param, ParseUUIDPipe, Post,
 import { EmpresaId, Escopo, EscopoSessao, Papeis, UsuarioAtual } from '../auth/decorators';
 import { PERM } from '../auth/papeis';
 import { AtivoDto } from '../shared/dto';
-import { AmostraDto, ETAPAS, EtapaDto, PedidoDto, StatusPedidoDto, TrocaFormulacaoDto } from './pedidos.dto';
+import { AmostraDto, ETAPAS, EtapaDto, PedidoDto, ProducaoDto, StatusPedidoDto, TrocaFormulacaoDto } from './pedidos.dto';
 import { PedidosService } from './pedidos.service';
 
 const Uuid = () => new ParseUUIDPipe({ exceptionFactory: () => new BadRequestException('Identificador inválido') });
@@ -43,6 +43,12 @@ export class PedidosController {
   @Escrita() @Put(':id/etapa')
   definirEtapa(@Escopo() escopo: EscopoSessao, @EmpresaId() empresaId: string, @UsuarioAtual() usuario: any, @Param('id', Uuid()) id: string, @Body() dto: EtapaDto) {
     return this.service.definirEtapa(escopo, empresaId, usuario.id, id, dto.etapa, dto.cliente_aprovou === true);
+  }
+
+  // Etapa 2: quantidade a produzir da formulação atual
+  @Escrita() @Put(':id/producao')
+  definirProducao(@Escopo() escopo: EscopoSessao, @EmpresaId() empresaId: string, @UsuarioAtual() usuario: any, @Param('id', Uuid()) id: string, @Body() dto: ProducaoDto) {
+    return this.service.definirProducao(escopo, empresaId, usuario.id, id, dto);
   }
 
   // Nova formulação do pedido: a atual entra em desuso

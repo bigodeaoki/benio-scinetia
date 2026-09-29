@@ -4,7 +4,7 @@ import { IsBoolean, IsIn, IsInt, IsNumber, IsOptional, IsPositive, IsString, IsU
 // conteúdo conforme forem desenhadas
 export const ETAPAS = [
   { numero: 1, nome: 'Formulação e amostras', definida: true },
-  { numero: 2, nome: 'Etapa 2', definida: false },
+  { numero: 2, nome: 'Quantidade de produção', definida: true },
   { numero: 3, nome: 'Etapa 3', definida: false },
   { numero: 4, nome: 'Etapa 4', definida: false },
 ];
@@ -86,4 +86,13 @@ export class AmostraDto {
 
   @IsOptional() @IsString() @MaxLength(255, { message: 'Observações: até 255 caracteres' })
   observacoes?: string;
+}
+
+// Etapa 2: quantidade a produzir da formulação atual, na unidade que a empresa usar (kg, g, L, mL, un…)
+export class ProducaoDto {
+  @IsNumber({ maxDecimalPlaces: 3 }, { message: 'Quantidade deve ser um número (até 3 casas)' }) @IsPositive({ message: 'Quantidade deve ser maior que zero' })
+  quantidade: number;
+
+  @IsString({ message: 'Informe a unidade' }) @Length(1, 20, { message: 'Unidade: entre 1 e 20 caracteres (kg, L, mL, un…)' })
+  unidade: string;
 }

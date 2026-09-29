@@ -7,7 +7,7 @@ export const STATUS = { rascunho: ['Rascunho', 'amarelo'], concluido: ['Concluí
 // Etapas do pedido; as não definidas já aparecem no stepper
 export const ETAPAS = [
   { numero: 1, nome: 'Formulação e amostras', definida: true },
-  { numero: 2, nome: 'Etapa 2', definida: false },
+  { numero: 2, nome: 'Quantidade de produção', definida: true },
   { numero: 3, nome: 'Etapa 3', definida: false },
   { numero: 4, nome: 'Etapa 4', definida: false },
 ];
