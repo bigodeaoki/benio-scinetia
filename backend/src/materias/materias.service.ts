@@ -8,7 +8,7 @@ import { MateriaDto } from './materias.dto';
 // Filtro da tela de cadastro: grupo inteiro ou uma empresa do escopo
 export type FiltroCadastro = { grupo?: boolean; empresa?: string };
 
-const COLUNAS = `m.id, m.nome, m.unidade, m.descricao, m.ativo, m.criado_em, m.atualizado_em, m.empresa_id,
+const COLUNAS = `m.id, m.nome, m.unidade, m.valor_compra, m.descricao, m.ativo, m.criado_em, m.atualizado_em, m.empresa_id,
   e.nome AS empresa_nome, IF(m.empresa_id IN (?), 'propria', 'matriz') AS origem`;
 
 // Matérias-primas são de cada empresa, mas a filial enxerga também as da
@@ -47,8 +47,8 @@ export class MateriasService {
     await this.recusarNomeDaMatriz(escopo, empresaId, dto.nome);
     const id = novoId();
     await this.pool
-      .query('INSERT INTO materias_primas (id, empresa_id, matriz_id, nome, unidade, descricao) VALUES (?,?,?,?,?,?)', [
-        id, empresaId, escopo.matrizId, dto.nome.trim(), dto.unidade.trim(), dto.descricao?.trim() || null,
+      .query('INSERT INTO materias_primas (id, empresa_id, matriz_id, nome, unidade, valor_compra, descricao) VALUES (?,?,?,?,?,?,?)', [
+        id, empresaId, escopo.matrizId, dto.nome.trim(), dto.unidade.trim(), dto.valor_compra ?? null, dto.descricao?.trim() || null,
       ])
       .catch((e: any) => this.traduzir(e));
     await this.auditoria.registrar(null, { matriz_id: escopo.matrizId, empresa_id: empresaId, usuario_id: usuarioId, acao: 'materia.criada', entidade: 'materias_primas', entidade_id: id, detalhes: { nome: dto.nome.trim() } });
@@ -59,8 +59,8 @@ export class MateriasService {
     const atual = await this.exigirPropria(escopo, empresaId, id);
     await this.recusarNomeDaMatriz(escopo, atual.empresa_id, dto.nome);
     await this.pool
-      .query('UPDATE materias_primas SET nome=?, unidade=?, descricao=? WHERE id=? AND empresa_id=?', [
-        dto.nome.trim(), dto.unidade.trim(), dto.descricao?.trim() || null, id, atual.empresa_id,
+      .query('UPDATE materias_primas SET nome=?, unidade=?, valor_compra=?, descricao=? WHERE id=? AND empresa_id=?', [
+        dto.nome.trim(), dto.unidade.trim(), dto.valor_compra ?? null, dto.descricao?.trim() || null, id, atual.empresa_id,
       ])
       .catch((e: any) => this.traduzir(e));
     await this.auditoria.registrar(null, { matriz_id: escopo.matrizId, empresa_id: atual.empresa_id, usuario_id: usuarioId, acao: 'materia.alterada', entidade: 'materias_primas', entidade_id: id, detalhes: { nome: dto.nome.trim() } });

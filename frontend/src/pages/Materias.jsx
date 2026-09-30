@@ -2,7 +2,7 @@ import React from 'react';
 import { Package } from 'lucide-react';
 import { SessaoContext } from '../App.jsx';
 import { api } from '../api.js';
-import { Badge, Campo, Carregando, Erro, Modal, Vazio, confirmar, fmtDataHora, toast, useDados } from '../ui.jsx';
+import { Badge, Campo, Carregando, Erro, Modal, Vazio, confirmar, fmtBRL, fmtDataHora, toast, useDados } from '../ui.jsx';
 
 const PODE_EDITAR = ['owner', 'compras', 'producao', 'administrativo'];
 
@@ -60,7 +60,7 @@ export default function Materias() {
           <div className="tabela-envolucro">
             <table className="tabela">
               <thead>
-                <tr><th>Nome</th><th>Empresa</th><th>Unidade</th><th>Descrição</th><th>Status</th><th>Criada em</th><th>Atualizada em</th>{podeEditar && <th className="acoes">Ações</th>}</tr>
+                <tr><th>Nome</th><th>Empresa</th><th>Unidade</th><th className="num">Valor de compra</th><th>Descrição</th><th>Status</th><th>Criada em</th><th>Atualizada em</th>{podeEditar && <th className="acoes">Ações</th>}</tr>
               </thead>
               <tbody>
                 {dados.map((m) => (
@@ -68,6 +68,7 @@ export default function Materias() {
                     <td className="negrito">{m.nome}</td>
                     <td>{empresaDe(m)}</td>
                     <td>{m.unidade}</td>
+                    <td className="num">{m.valor_compra != null ? `${fmtBRL(m.valor_compra)}/${m.unidade}` : <span className="texto-suave">—</span>}</td>
                     <td className="texto-suave">{m.descricao || '—'}</td>
                     <td><Badge cor={m.ativo ? 'verde' : 'cinza'}>{m.ativo ? 'Ativa' : 'Inativa'}</Badge></td>
                     <td>{fmtDataHora(m.criado_em)}</td>
@@ -101,14 +102,14 @@ export default function Materias() {
 
 function FormMateria({ materia, aoFechar, aoSalvar }) {
   const [f, setF] = React.useState(materia
-    ? { nome: materia.nome, unidade: materia.unidade, descricao: materia.descricao || '' }
-    : { nome: '', unidade: 'kg', descricao: '' });
+    ? { nome: materia.nome, unidade: materia.unidade, valor_compra: materia.valor_compra ?? '', descricao: materia.descricao || '' }
+    : { nome: '', unidade: 'kg', valor_compra: '', descricao: '' });
   const [erro, setErro] = React.useState(null);
   const mudar = (campo, valor) => setF((s) => ({ ...s, [campo]: valor }));
 
   async function salvar() {
     setErro(null);
-    const corpo = { nome: f.nome, unidade: f.unidade, descricao: f.descricao || undefined };
+    const corpo = { nome: f.nome, unidade: f.unidade, valor_compra: f.valor_compra === '' ? undefined : Number(f.valor_compra), descricao: f.descricao || undefined };
     try {
       if (materia) await api(`/materias/${materia.id}`, { method: 'PUT', body: corpo });
       else await api('/materias', { method: 'POST', body: corpo });
@@ -126,6 +127,7 @@ function FormMateria({ materia, aoFechar, aoSalvar }) {
       <div className="linha-campos">
         <Campo rotulo="Nome *"><input value={f.nome} onChange={(e) => mudar('nome', e.target.value)} autoFocus /></Campo>
         <Campo rotulo="Unidade *" largura={120} dica="kg, L, un…"><input value={f.unidade} onChange={(e) => mudar('unidade', e.target.value)} /></Campo>
+        <Campo rotulo="Valor de compra (R$)" largura={200} dica={`por ${f.unidade || 'unidade'}; base do custo da produção`}><input type="number" step="0.0001" min="0" value={f.valor_compra} onChange={(e) => mudar('valor_compra', e.target.value)} /></Campo>
       </div>
       <div className="linha-campos">
         <Campo rotulo="Descrição"><input value={f.descricao} onChange={(e) => mudar('descricao', e.target.value)} /></Campo>

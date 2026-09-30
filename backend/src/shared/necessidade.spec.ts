@@ -1,4 +1,4 @@
-import { necessidade, producaoPrevista } from './necessidade';
+import { converter, custoMateriaPrima, necessidade, producaoPrevista } from './necessidade';
 
 describe('necessidade de matéria-prima', () => {
   it('multiplica a quantidade da fórmula (por 1 unidade) pela produção', () => {
@@ -39,5 +39,28 @@ describe('produção prevista pelo rendimento das máquinas', () => {
 
   it('sem máquinas, a produção prevista é a planejada', () => {
     expect(producaoPrevista(300, [])).toEqual({ rendimento_pct: 100, quantidade: 300 });
+  });
+});
+
+describe('conversão de unidades e custo da matéria-prima', () => {
+  it('converte dentro da família e recusa entre famílias', () => {
+    expect(converter(30, 'kg', 'g')).toBe(30000);
+    expect(converter(90, 'kg', 'kg')).toBe(90);
+    expect(converter(2, 'L', 'mL')).toBe(2000);
+    expect(converter(500, 'ML', 'l')).toBe(0.5);
+    expect(converter(3, 'un', 'kg')).toBeNull();
+    expect(converter(3, 'kg', 'L')).toBeNull();
+  });
+
+  it('custo = necessário na unidade de compra × valor de compra', () => {
+    expect(custoMateriaPrima(100, 'kg', 10, 'kg')).toEqual({ custo: 1000, aviso: null });
+    expect(custoMateriaPrima(30, 'kg', 5, 'kg')).toEqual({ custo: 150, aviso: null });
+    expect(custoMateriaPrima(900, 'g', 5, 'kg')).toEqual({ custo: 4.5, aviso: null });
+    expect(custoMateriaPrima(2, 'L', 12.5, 'mL')).toEqual({ custo: 25000, aviso: null });
+  });
+
+  it('sem preço ou sem conversão, avisa em vez de inventar', () => {
+    expect(custoMateriaPrima(100, 'kg', null, 'kg')).toEqual({ custo: null, aviso: 'sem valor de compra no cadastro' });
+    expect(custoMateriaPrima(100, 'un', 10, 'kg')).toEqual({ custo: null, aviso: 'un não converte para kg' });
   });
 });

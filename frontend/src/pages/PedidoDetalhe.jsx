@@ -4,7 +4,7 @@ import { ClipboardList } from 'lucide-react';
 import { SessaoContext } from '../App.jsx';
 import { api } from '../api.js';
 import { Badge, Campo, Carregando, Erro, Modal, Vazio, confirmar, fmtBRL, fmtData, fmtDataHora, fmtQtd, hoje, toast, useDados } from '../ui.jsx';
-import { BuscaFormulacao, ETAPAS, PODE_EDITAR_CUSTOS, PODE_EDITAR_PEDIDOS, STATUS, Stepper, fmtNumero, necessidade, producaoPrevista } from './pedidos-comum.jsx';
+import { BuscaFormulacao, ETAPAS, PODE_EDITAR_CUSTOS, PODE_EDITAR_PEDIDOS, STATUS, Stepper, custoMateriaPrima, fmtNumero, necessidade, producaoPrevista } from './pedidos-comum.jsx';
 
 // Página do pedido, também para criar (/pedidos/novo): stepper com as etapas
 // no topo. Etapa 1: dados do pedido, histórico de formulações (a nova põe a
@@ -379,36 +379,48 @@ function FormAmostra({ p, amostra, aoFechar, aoSalvar }) {
 
 
 const UNIDADES_PRODUCAO = ['un', 'kg', 'g', 'L', 'mL'];
-const assinatura = (lista) => JSON.stringify((lista || []).map((m) => [m.maquina_id, Number(m.rendimento_pct)]));
+const assinatura = (lista) => JSON.stringify((lista || []).map((m) => [m.maquina_id, Number(m.rendimento_pct), Number(m.horas) || 0]));
+const custoMaquina = (m) => Math.round((Number(m.horas) || 0) * (Number(m.custo_hora) || 0) * 100) / 100;
 
-// Etapa 2, Produção: quantidade a produzir, matérias-primas necessárias (fórmula por
-// 1 unidade × quantidade) e o maquinário, com o rendimento ajustável para este pedido
+// Etapa 2, Produção: quantidade a produzir, matérias-primas necessárias (fórmula por 1 unidade ×
+// quantidade, com o custo pelo valor de compra), maquinário com rendimento e horas, e o custo global
 function Etapa2({ p, podeEditar, recarregar, antesDeAvancar }) {
   const ativa = p.formulacoes.find((x) => x.ativa);
   const ingredientes = p.formulacao_ingredientes || [];
   const { dados: cadastro } = useDados(() => api(`/maquinas?empresa=${p.empresa_id}`).catch(() => []), [p.empresa_id]);
   const [f, setF] = React.useState({
     quantidade: p.quantidade_producao ?? '', unidade: p.unidade_producao || 'un',
-    maquinas: (p.maquinas || []).map((m) => ({ maquina_id: m.maquina_id, titulo: m.titulo, modelo: m.modelo, rendimento_padrao: m.rendimento_padrao, rendimento_pct: m.rendimento_pct })),
+    maquinas: (p.maquinas || []).map((m) => ({ maquina_id: m.maquina_id, titulo: m.titulo, modelo: m.modelo, rendimento_padrao: m.rendimento_padrao, rendimento_pct: m.rendimento_pct, horas: m.horas ?? '', custo_hora: m.custo_hora_pedido ?? m.custo_hora })),
   });
   const [escolhida, setEscolhida] = React.useState('');
   const [erro, setErro] = React.useState(null);
   const [salvando, setSalvando] = React.useState(false);
   const mudar = (campo, valor) => setF((x) => ({ ...x, [campo]: valor }));
   const producao = Number(f.quantidade) > 0 ? Number(f.quantidade) : 0;
-  // O rendimento das máquinas reduz o que sai, não a matéria-prima: fica avisado ao lado da quantidade
+  // O rendimento das máquinas reduz o que sai, não a matéria-prima
   const prevista = producaoPrevista(producao, f.maquinas.map((m) => Number(m.rendimento_pct)).filter((r) => r > 0 && r <= 100));
   const alterado = String(f.quantidade) !== String(p.quantidade_producao ?? '') || f.unidade.trim() !== (p.unidade_producao || 'un') || assinatura(f.maquinas) !== assinatura(p.maquinas);
   const disponiveis = (cadastro || []).filter((m) => m.ativo && !f.maquinas.some((x) => x.maquina_id === m.id));
+  // Custos calculados ao vivo: matéria-prima pelo valor de compra, máquinas por horas × custo-hora
+  const linhasMp = ingredientes.map((i) => {
+    const n = producao ? necessidade(i.quantidade, i.unidade, producao) : null;
+    const c = n ? custoMateriaPrima(n.quantidade, n.unidade, i.valor_compra, i.unidade_compra) : { custo: null, aviso: null };
+    return { ...i, n, custo: c.custo, aviso: c.aviso };
+  });
+  const custoMp = Math.round(linhasMp.reduce((s, l) => s + (l.custo || 0), 0) * 100) / 100;
+  const semCusto = producao ? linhasMp.filter((l) => l.custo == null).length : 0;
+  const custoMaq = Math.round(f.maquinas.reduce((s, m) => s + custoMaquina(m), 0) * 100) / 100;
+  const horasTotal = f.maquinas.reduce((s, m) => s + (Number(m.horas) || 0), 0);
+  const custoGlobal = Math.round((custoMp + custoMaq) * 100) / 100;
 
   function adicionarMaquina() {
     const m = (cadastro || []).find((x) => x.id === escolhida);
     if (!m) return;
-    // O rendimento nasce do cadastro da máquina e pode ser ajustado só para este pedido
-    setF((x) => ({ ...x, maquinas: [...x.maquinas, { maquina_id: m.id, titulo: m.titulo, modelo: m.modelo, rendimento_padrao: m.rendimento_pct, rendimento_pct: m.rendimento_pct }] }));
+    // O rendimento e o custo-hora nascem do cadastro; o rendimento pode ser ajustado só para este pedido
+    setF((x) => ({ ...x, maquinas: [...x.maquinas, { maquina_id: m.id, titulo: m.titulo, modelo: m.modelo, rendimento_padrao: m.rendimento_pct, rendimento_pct: m.rendimento_pct, horas: '', custo_hora: m.custo_hora }] }));
     setEscolhida('');
   }
-  const mudarRendimento = (i, valor) => setF((x) => ({ ...x, maquinas: x.maquinas.map((m, j) => (j === i ? { ...m, rendimento_pct: valor } : m)) }));
+  const mudarMaquina = (i, campo, valor) => setF((x) => ({ ...x, maquinas: x.maquinas.map((m, j) => (j === i ? { ...m, [campo]: valor } : m)) }));
   const removerMaquina = (i) => setF((x) => ({ ...x, maquinas: x.maquinas.filter((_, j) => j !== i) }));
 
   async function salvar() {
@@ -417,11 +429,13 @@ function Etapa2({ p, podeEditar, recarregar, antesDeAvancar }) {
     if (!f.unidade.trim()) { setErro('Informe a unidade'); return false; }
     const fora = f.maquinas.find((m) => !(Number(m.rendimento_pct) > 0 && Number(m.rendimento_pct) <= 100));
     if (fora) { setErro(`Rendimento de ${fora.titulo}: entre 0,01 e 100 %`); return false; }
+    const horasRuim = f.maquinas.find((m) => m.horas !== '' && !(Number(m.horas) >= 0));
+    if (horasRuim) { setErro(`Horas de ${horasRuim.titulo}: informe um número`); return false; }
     setSalvando(true);
     try {
       await api(`/pedidos/${p.id}/producao`, { method: 'PUT', body: {
         quantidade: Number(f.quantidade), unidade: f.unidade.trim(),
-        maquinas: f.maquinas.map((m) => ({ maquina_id: m.maquina_id, rendimento_pct: Number(m.rendimento_pct) })),
+        maquinas: f.maquinas.map((m) => ({ maquina_id: m.maquina_id, rendimento_pct: Number(m.rendimento_pct), horas: m.horas === '' ? undefined : Number(m.horas) })),
       } });
       recarregar();
       toast.sucesso('Produção salva');
@@ -464,45 +478,50 @@ function Etapa2({ p, podeEditar, recarregar, antesDeAvancar }) {
         <div className="alerta alerta-aviso">A formulação ainda não tem ingredientes: a farmácia precisa completar a fórmula em Cadastros › Formulações para a lista aparecer.</div>
       ) : (
         <>
-          <div className="alerta alerta-info">As quantidades da fórmula valem para <strong>1 unidade</strong> produzida. O necessário é a quantidade da fórmula vezes a quantidade a produzir.</div>
+          <div className="alerta alerta-info">As quantidades da fórmula valem para <strong>1 unidade</strong> produzida. O necessário é a quantidade da fórmula vezes a quantidade a produzir, e o custo usa o valor de compra do cadastro da matéria-prima.</div>
           <div className="tabela-envolucro">
             <table className="tabela">
-              <thead><tr><th>Matéria-prima</th><th className="num">Na fórmula (por 1 unidade)</th><th className="num">Necessário{producao ? ` para ${fmtQtd(producao)} ${f.unidade}` : ''}</th></tr></thead>
+              <thead><tr><th>Matéria-prima</th><th className="num">Na fórmula (por 1 unidade)</th><th className="num">Necessário{producao ? ` para ${fmtQtd(producao)} ${f.unidade}` : ''}</th><th className="num">Valor de compra</th><th className="num">Custo</th></tr></thead>
               <tbody>
-                {ingredientes.map((i) => {
-                  const n = producao ? necessidade(i.quantidade, i.unidade, producao) : null;
-                  return (
-                    <tr key={i.materia_prima_id}>
-                      <td className="negrito">{i.materia_prima}</td>
-                      <td className="num">{fmtQtd(i.quantidade, 4)} {i.unidade}</td>
-                      <td className="num negrito">{n ? `${fmtQtd(n.quantidade)} ${n.unidade}` : <span className="texto-suave">informe a quantidade</span>}</td>
-                    </tr>
-                  );
-                })}
+                {linhasMp.map((i) => (
+                  <tr key={i.materia_prima_id}>
+                    <td className="negrito">{i.materia_prima}</td>
+                    <td className="num">{fmtQtd(i.quantidade, 4)} {i.unidade}</td>
+                    <td className="num negrito">{i.n ? `${fmtQtd(i.n.quantidade)} ${i.n.unidade}` : <span className="texto-suave">informe a quantidade</span>}</td>
+                    <td className="num">{i.valor_compra != null ? `${fmtBRL(i.valor_compra)}/${i.unidade_compra}` : <Badge cor="amarelo">sem preço</Badge>}</td>
+                    <td className="num negrito">{i.custo != null ? fmtBRL(i.custo) : i.aviso && producao ? <span className="texto-suave" title={i.aviso}>—</span> : <span className="texto-suave">—</span>}</td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
+          {semCusto > 0 && <div className="alerta alerta-aviso">{semCusto} matéria(s)-prima(s) sem custo: {linhasMp.filter((l) => l.custo == null).map((l) => `${l.materia_prima} (${l.aviso})`).join('; ')}. Preencha o valor de compra em Cadastros › Matérias-primas.</div>}
         </>
       )}
 
       <Titulo>Maquinário</Titulo>
-      <div className="alerta alerta-info">Máquinas de {p.empresa_nome} que serão usadas. O rendimento vem do cadastro da máquina e pode ser ajustado só para este pedido.</div>
+      <div className="alerta alerta-info">Máquinas de {p.empresa_nome} que serão usadas, com as horas de produção. O rendimento e o custo por hora vêm do cadastro; o rendimento pode ser ajustado só para este pedido.</div>
       {!f.maquinas.length ? <Vazio msg="Nenhuma máquina no pedido" /> : (
         <div className="tabela-envolucro">
           <table className="tabela">
-            <thead><tr><th>Máquina</th><th>Modelo</th><th className="num">Rendimento do cadastro</th><th className="num">Rendimento neste pedido (%)</th>{podeEditar && <th className="acoes">Ações</th>}</tr></thead>
+            <thead><tr><th>Máquina</th><th className="num">Rendimento (%)</th><th className="num">Horas</th><th className="num">Custo/hora</th><th className="num">Custo</th>{podeEditar && <th className="acoes">Ações</th>}</tr></thead>
             <tbody>
               {f.maquinas.map((m, i) => (
                 <tr key={m.maquina_id}>
-                  <td className="negrito">{m.titulo}</td>
-                  <td>{m.modelo || '—'}</td>
-                  <td className="num">{fmtQtd(m.rendimento_padrao, 2)} %</td>
+                  <td className="negrito">{m.titulo}{m.modelo ? <span className="texto-suave"> · {m.modelo}</span> : ''}</td>
                   <td className="num">
                     {podeEditar
-                      ? <input type="number" step="0.01" min="0.01" max="100" value={m.rendimento_pct} onChange={(e) => mudarRendimento(i, e.target.value)} style={{ width: 110, textAlign: 'right' }} />
+                      ? <input type="number" step="0.01" min="0.01" max="100" value={m.rendimento_pct} onChange={(e) => mudarMaquina(i, 'rendimento_pct', e.target.value)} style={{ width: 100, textAlign: 'right' }} />
                       : `${fmtQtd(m.rendimento_pct, 2)} %`}
                     {Number(m.rendimento_pct) !== Number(m.rendimento_padrao) && <> <Badge cor="amarelo">ajustado</Badge></>}
                   </td>
+                  <td className="num">
+                    {podeEditar
+                      ? <input type="number" step="0.25" min="0" value={m.horas} onChange={(e) => mudarMaquina(i, 'horas', e.target.value)} style={{ width: 90, textAlign: 'right' }} placeholder="0" />
+                      : m.horas !== '' && m.horas != null ? `${fmtQtd(m.horas, 2)} h` : '—'}
+                  </td>
+                  <td className="num">{fmtBRL(m.custo_hora)}</td>
+                  <td className="num negrito">{fmtBRL(custoMaquina(m))}</td>
                   {podeEditar && <td className="acoes"><button type="button" className="botao botao-perigo botao-mini" onClick={() => removerMaquina(i)}>Remover</button></td>}
                 </tr>
               ))}
@@ -515,37 +534,33 @@ function Etapa2({ p, podeEditar, recarregar, antesDeAvancar }) {
           <Campo rotulo="Adicionar máquina" dica={disponiveis.length ? undefined : 'Todas as máquinas ativas desta empresa já estão no pedido, ou não há máquinas cadastradas'}>
             <select value={escolhida} onChange={(e) => setEscolhida(e.target.value)} disabled={!disponiveis.length}>
               <option value="">Escolha…</option>
-              {disponiveis.map((m) => <option key={m.id} value={m.id}>{m.titulo}{m.modelo ? ` · ${m.modelo}` : ''} — rendimento {fmtQtd(m.rendimento_pct, 2)} %</option>)}
+              {disponiveis.map((m) => <option key={m.id} value={m.id}>{m.titulo}{m.modelo ? ` · ${m.modelo}` : ''} — rendimento {fmtQtd(m.rendimento_pct, 2)} % · {fmtBRL(m.custo_hora)}/h</option>)}
             </select>
           </Campo>
           <button type="button" className="botao botao-secundario" style={{ marginBottom: 10 }} disabled={!escolhida} onClick={adicionarMaquina}>+ Adicionar</button>
         </div>
       )}
       {podeEditar && <button className="botao botao-secundario" style={{ marginTop: 6 }} disabled={salvando || !alterado} onClick={salvar}>{salvando ? 'Salvando…' : 'Salvar produção'}</button>}
-      {/* Resumão da etapa, no fim de tudo: o que vai ser produzido depois do rendimento das máquinas */}
+
+      {/* Resumão da produção: o que vai ser produzido depois do rendimento das máquinas */}
       <div style={{ marginTop: 20, padding: '14px 16px 4px', borderRadius: 12, background: 'var(--azul-100)', border: '1px solid #b9d0f0' }}>
         <div className="texto-suave negrito" style={{ textTransform: 'uppercase', fontSize: 11, letterSpacing: 0.4, marginBottom: 10 }}>Resumo da produção</div>
         <div className="grade-kpis">
-          <div className="kpi">
-            <div className="kpi-rotulo">Formulação</div>
-            <div className="kpi-valor" style={{ fontSize: 17 }}>{ativa?.nome || '—'}</div>
-            <div className="kpi-extra">{ingredientes.length ? `${ingredientes.length} matéria(s)-prima(s)` : 'sem ingredientes cadastrados'}</div>
-          </div>
-          <div className="kpi">
-            <div className="kpi-rotulo">Quantidade planejada</div>
-            <div className="kpi-valor">{producao ? `${fmtQtd(producao)} ${f.unidade}` : '—'}</div>
-            <div className="kpi-extra">base da matéria-prima necessária</div>
-          </div>
-          <div className="kpi">
-            <div className="kpi-rotulo">Rendimento das máquinas</div>
-            <div className="kpi-valor">{f.maquinas.length ? `${fmtQtd(prevista.rendimento_pct, 2)} %` : '—'}</div>
-            <div className="kpi-extra">{f.maquinas.length > 1 ? f.maquinas.map((m) => `${fmtQtd(m.rendimento_pct, 2)} %`).join(' × ') : f.maquinas.length === 1 ? f.maquinas[0].titulo : 'nenhuma máquina no pedido'}</div>
-          </div>
-          <div className="kpi" style={producao && prevista.rendimento_pct < 100 ? { background: '#fdf2d9', border: '1px solid #e9c46a' } : undefined}>
-            <div className="kpi-rotulo">Produção prevista</div>
-            <div className="kpi-valor">{producao ? `${fmtQtd(prevista.quantidade)} ${f.unidade}` : '—'}</div>
-            <div className="kpi-extra">{producao && prevista.rendimento_pct < 100 ? `${fmtQtd(producao - prevista.quantidade)} ${f.unidade} a menos pelo rendimento` : 'sem perda pelo rendimento'}</div>
-          </div>
+          <div className="kpi"><div className="kpi-rotulo">Formulação</div><div className="kpi-valor" style={{ fontSize: 17 }}>{ativa?.nome || '—'}</div><div className="kpi-extra">{ingredientes.length ? `${ingredientes.length} matéria(s)-prima(s)` : 'sem ingredientes cadastrados'}</div></div>
+          <div className="kpi"><div className="kpi-rotulo">Quantidade planejada</div><div className="kpi-valor">{producao ? `${fmtQtd(producao)} ${f.unidade}` : '—'}</div><div className="kpi-extra">base da matéria-prima necessária</div></div>
+          <div className="kpi"><div className="kpi-rotulo">Rendimento das máquinas</div><div className="kpi-valor">{f.maquinas.length ? `${fmtQtd(prevista.rendimento_pct, 2)} %` : '—'}</div><div className="kpi-extra">{f.maquinas.length > 1 ? f.maquinas.map((m) => `${fmtQtd(m.rendimento_pct, 2)} %`).join(' × ') : f.maquinas.length === 1 ? f.maquinas[0].titulo : 'nenhuma máquina no pedido'}</div></div>
+          <div className="kpi" style={producao && prevista.rendimento_pct < 100 ? { background: '#fdf2d9', border: '1px solid #e9c46a' } : undefined}><div className="kpi-rotulo">Produção prevista</div><div className="kpi-valor">{producao ? `${fmtQtd(prevista.quantidade)} ${f.unidade}` : '—'}</div><div className="kpi-extra">{producao && prevista.rendimento_pct < 100 ? `${fmtQtd(producao - prevista.quantidade)} ${f.unidade} a menos pelo rendimento` : 'sem perda pelo rendimento'}</div></div>
+        </div>
+      </div>
+
+      {/* Custo global da produção: matéria-prima + máquinas. É a base sobre a qual os demais custos se calculam */}
+      <div style={{ marginTop: 14, padding: '14px 16px 4px', borderRadius: 12, background: '#eef9ef', border: '1px solid #b7e0bb' }}>
+        <div className="texto-suave negrito" style={{ textTransform: 'uppercase', fontSize: 11, letterSpacing: 0.4, marginBottom: 10 }}>Custo global da produção</div>
+        <div className="grade-kpis">
+          <div className="kpi"><div className="kpi-rotulo">Matérias-primas</div><div className="kpi-valor">{producao ? fmtBRL(custoMp) : '—'}</div><div className="kpi-extra">{semCusto ? `${semCusto} sem custo: preencha o valor de compra` : 'necessário × valor de compra'}</div></div>
+          <div className="kpi"><div className="kpi-rotulo">Máquinas</div><div className="kpi-valor">{fmtBRL(custoMaq)}</div><div className="kpi-extra">{f.maquinas.length ? `${fmtQtd(horasTotal, 2)} h × custo-hora` : 'nenhuma máquina no pedido'}</div></div>
+          <div className="kpi" style={{ background: '#fff', border: '2px solid #2f9e44' }}><div className="kpi-rotulo">Custo global</div><div className="kpi-valor">{fmtBRL(custoGlobal)}</div><div className="kpi-extra">base para os demais custos</div></div>
+          <div className="kpi"><div className="kpi-rotulo">Por unidade</div><div className="kpi-valor">{producao ? fmtBRL(custoGlobal / producao) : '—'}</div><div className="kpi-extra">{producao && prevista.quantidade > 0 && prevista.rendimento_pct < 100 ? `${fmtBRL(custoGlobal / prevista.quantidade)} por unidade prevista` : producao ? 'planejada = prevista' : 'informe a quantidade'}</div></div>
         </div>
       </div>
     </>

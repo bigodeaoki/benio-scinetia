@@ -97,6 +97,10 @@ export class MaquinaPedidoDto {
   @IsOptional() @IsNumber({ maxDecimalPlaces: 2 }, { message: 'Rendimento deve ser um número (%)' })
   @Min(0.01, { message: 'Rendimento: entre 0,01 e 100 %' }) @Max(100, { message: 'Rendimento: entre 0,01 e 100 %' })
   rendimento_pct?: number;
+
+  // Horas de produção nesta máquina; custo = horas × custo-hora do cadastro (gravado na hora)
+  @IsOptional() @IsNumber({ maxDecimalPlaces: 2 }, { message: 'Horas deve ser um número (até 2 casas)' }) @Min(0, { message: 'Horas não pode ser negativo' })
+  horas?: number;
 }
 
 // Etapa 2 (Produção): quantidade a produzir da formulação atual, na unidade que a empresa usar,

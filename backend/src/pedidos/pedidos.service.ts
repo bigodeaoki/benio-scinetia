@@ -6,7 +6,7 @@ import { EnvasesService } from '../envases/envases.service';
 import { FormulacoesService } from '../formulacoes/formulacoes.service';
 import { MateriasService } from '../materias/materias.service';
 import { novoId } from '../shared/ids';
-import { necessidade, producaoPrevista } from '../shared/necessidade';
+import { custoMateriaPrima, necessidade, producaoPrevista } from '../shared/necessidade';
 import { AmostraDto, CustoDto, CustosDto, MaquinaPedidoDto, PedidoDto, ProducaoDto, TrocaFormulacaoDto } from './pedidos.dto';
 
 const COLUNAS = `p.id, p.matriz_id, p.empresa_id, e.nome AS empresa_nome, p.numero, p.cliente_id, c.razao_social AS cliente_nome, c.nome_fantasia AS cliente_fantasia,
@@ -68,10 +68,11 @@ export class PedidosService {
       [id],
     );
     // Ingredientes da formulação atual: a quantidade da fórmula vale para 1 unidade produzida;
-    // com a quantidade de produção definida, vem também o necessário de cada matéria-prima
+    // com a quantidade de produção definida, vem o necessário de cada matéria-prima e o seu custo
+    // (necessário na unidade de compra × valor de compra do cadastro)
     const [itens]: any = pedido.formulacao_id
       ? await this.pool.query(
-          `SELECT i.ordem, i.materia_prima_id, m.nome AS materia_prima, i.quantidade, i.unidade
+          `SELECT i.ordem, i.materia_prima_id, m.nome AS materia_prima, i.quantidade, i.unidade, m.valor_compra, m.unidade AS unidade_compra
              FROM formulacao_itens i JOIN materias_primas m ON m.id = i.materia_prima_id
             WHERE i.formulacao_id = ? ORDER BY i.ordem, m.nome`,
           [pedido.formulacao_id],
@@ -80,15 +81,32 @@ export class PedidosService {
     const producao = Number(pedido.quantidade_producao) || 0;
     const ingredientes = itens.map((i: any) => {
       const n = producao > 0 ? necessidade(Number(i.quantidade), i.unidade, producao) : null;
-      return { ...i, necessario: n ? n.quantidade : null, necessario_unidade: n ? n.unidade : null };
+      const c = n ? custoMateriaPrima(n.quantidade, n.unidade, i.valor_compra, i.unidade_compra) : { custo: null, aviso: null };
+      return { ...i, necessario: n ? n.quantidade : null, necessario_unidade: n ? n.unidade : null, custo: c.custo, custo_aviso: c.aviso };
     });
-    const [maquinas]: any = await this.pool.query(
-      `SELECT pm.id, pm.maquina_id, m.titulo, m.modelo, m.custo_hora, m.rendimento_pct AS rendimento_padrao, m.ativo AS maquina_ativa, pm.rendimento_pct, pm.ordem
+    const [maquinasBrutas]: any = await this.pool.query(
+      `SELECT pm.id, pm.maquina_id, m.titulo, m.modelo, m.custo_hora, m.rendimento_pct AS rendimento_padrao, m.ativo AS maquina_ativa,
+              pm.rendimento_pct, pm.horas, pm.custo_hora AS custo_hora_pedido, pm.ordem
          FROM pedido_maquinas pm JOIN maquinas m ON m.id = pm.maquina_id WHERE pm.pedido_id = ? ORDER BY pm.ordem, m.titulo`,
       [id],
     );
+    // Custo da máquina = horas × custo-hora gravado no pedido (ou o do cadastro, para pedidos antigos)
+    const maquinas = maquinasBrutas.map((m: any) => {
+      const custoHora = m.custo_hora_pedido != null ? Number(m.custo_hora_pedido) : Number(m.custo_hora);
+      return { ...m, custo_hora_pedido: custoHora, custo: Math.round((Number(m.horas) || 0) * custoHora * 100) / 100 };
+    });
     // O rendimento das máquinas não muda a matéria-prima: reduz o que sai (300 a 90 % produzem 270)
     const prevista = producao > 0 ? producaoPrevista(producao, maquinas.map((m: any) => Number(m.rendimento_pct))) : null;
+    // Custo global da produção: matéria-prima + máquinas. É a base sobre a qual os demais custos se calculam
+    const custoMaterias = Math.round(ingredientes.reduce((s: number, i: any) => s + (i.custo || 0), 0) * 100) / 100;
+    const custoMaquinas = Math.round(maquinas.reduce((s: number, m: any) => s + m.custo, 0) * 100) / 100;
+    const custoGlobal = Math.round((custoMaterias + custoMaquinas) * 100) / 100;
+    const porUnidade = (base: number | null) => (base && base > 0 ? Math.round((custoGlobal / base) * 10000) / 10000 : null);
+    const custos_producao = {
+      materias_primas: custoMaterias, materias_sem_custo: ingredientes.filter((i: any) => producao > 0 && i.custo == null).length,
+      maquinas: custoMaquinas, horas: Math.round(maquinas.reduce((s: number, m: any) => s + (Number(m.horas) || 0), 0) * 100) / 100,
+      total: custoGlobal, custo_unitario_planejado: porUnidade(producao), custo_unitario_previsto: porUnidade(prevista ? prevista.quantidade : null),
+    };
     const [custos]: any = await this.pool.query(
       'SELECT id, tipo, referencia_id, descricao, quantidade, unidade, valor_unitario, total, ordem FROM pedido_custos WHERE pedido_id = ? ORDER BY ordem',
       [id],
@@ -96,7 +114,7 @@ export class PedidosService {
     return {
       ...pedido, formulacoes, amostras, amostras_resumo: this.resumoAmostras(amostras), formulacao_ingredientes: ingredientes, maquinas,
       rendimento_combinado_pct: prevista ? prevista.rendimento_pct : null, producao_prevista: prevista ? prevista.quantidade : null,
-      custos, custos_resumo: this.resumoCustos(custos, producao, prevista ? prevista.quantidade : null),
+      custos, custos_resumo: this.resumoCustos(custos, producao, prevista ? prevista.quantidade : null), custos_producao,
     };
   }
 
@@ -209,8 +227,8 @@ export class PedidosService {
       if (maquinas) {
         await cx.query('DELETE FROM pedido_maquinas WHERE pedido_id = ?', [id]);
         if (maquinas.length) {
-          await cx.query('INSERT INTO pedido_maquinas (id, pedido_id, maquina_id, rendimento_pct, ordem, usuario_id) VALUES ?', [
-            maquinas.map((m, i) => [novoId(), id, m.maquina_id, m.rendimento_pct, i + 1, usuarioId]),
+          await cx.query('INSERT INTO pedido_maquinas (id, pedido_id, maquina_id, rendimento_pct, horas, custo_hora, ordem, usuario_id) VALUES ?', [
+            maquinas.map((m, i) => [novoId(), id, m.maquina_id, m.rendimento_pct, m.horas, m.custo_hora, i + 1, usuarioId]),
           ]);
         }
       }
@@ -225,7 +243,7 @@ export class PedidosService {
       matriz_id: atual.matriz_id, empresa_id: atual.empresa_id, usuario_id: usuarioId, acao: 'pedido.producao_definida', entidade: 'pedidos', entidade_id: id,
       detalhes: {
         numero: atual.numero, quantidade: dto.quantidade, unidade, formulacao_id: atual.formulacao_id,
-        ...(maquinas ? { maquinas: maquinas.map((m) => ({ titulo: m.titulo, rendimento_pct: m.rendimento_pct })) } : {}),
+        ...(maquinas ? { maquinas: maquinas.map((m) => ({ titulo: m.titulo, rendimento_pct: m.rendimento_pct, horas: m.horas })) } : {}),
       },
     });
     return this.detalhar(escopo, empresaId, id);
@@ -236,13 +254,13 @@ export class PedidosService {
     const ids = lista.map((m) => m.maquina_id);
     if (new Set(ids).size !== ids.length) throw new BadRequestException('Máquina repetida na lista');
     if (!ids.length) return [];
-    const [rows]: any = await this.pool.query('SELECT id, titulo, rendimento_pct, ativo FROM maquinas WHERE id IN (?) AND empresa_id = ?', [ids, pedido.empresa_id]);
+    const [rows]: any = await this.pool.query('SELECT id, titulo, rendimento_pct, custo_hora, ativo FROM maquinas WHERE id IN (?) AND empresa_id = ?', [ids, pedido.empresa_id]);
     const porId = new Map<string, any>(rows.map((m: any) => [m.id, m]));
     return lista.map((item) => {
       const m = porId.get(item.maquina_id);
       if (!m) throw new BadRequestException('Máquina não encontrada na empresa do pedido');
       if (!m.ativo) throw new BadRequestException(`Máquina "${m.titulo}" está inativa`);
-      return { maquina_id: m.id as string, titulo: m.titulo as string, rendimento_pct: item.rendimento_pct ?? Number(m.rendimento_pct) };
+      return { maquina_id: m.id as string, titulo: m.titulo as string, rendimento_pct: item.rendimento_pct ?? Number(m.rendimento_pct), horas: item.horas ?? null, custo_hora: Number(m.custo_hora) };
     });
   }
 

@@ -118,3 +118,23 @@ export function producaoPrevista(quantidade, rendimentos) {
   const fator = rendimentos.reduce((acc, r) => acc * (Number(r) / 100), 1);
   return { rendimento_pct: Math.round(fator * 10000) / 100, quantidade: Math.round(Number(quantidade) * fator * 1000) / 1000 };
 }
+
+// Conversão entre unidades da mesma família (massa: mg, g, kg; volume: mL, L). Null quando não dá
+const FATORES = { mg: { familia: 'massa', fator: 0.001 }, g: { familia: 'massa', fator: 1 }, kg: { familia: 'massa', fator: 1000 }, ml: { familia: 'volume', fator: 1 }, l: { familia: 'volume', fator: 1000 } };
+export function converter(quantidade, de, para) {
+  const a = (de || '').trim().toLowerCase();
+  const b = (para || '').trim().toLowerCase();
+  if (a === b) return Number(quantidade);
+  const fa = FATORES[a];
+  const fb = FATORES[b];
+  if (!fa || !fb || fa.familia !== fb.familia) return null;
+  return (Number(quantidade) * fa.fator) / fb.fator;
+}
+
+// Custo de uma matéria-prima: necessário na unidade de compra × valor de compra. Mesma regra do backend
+export function custoMateriaPrima(necessario, unidade, valorCompra, unidadeCompra) {
+  if (valorCompra == null) return { custo: null, aviso: 'sem valor de compra no cadastro' };
+  const q = converter(necessario, unidade, unidadeCompra);
+  if (q == null) return { custo: null, aviso: `${unidade} não converte para ${unidadeCompra}` };
+  return { custo: Math.round(q * Number(valorCompra) * 100) / 100, aviso: null };
+}
