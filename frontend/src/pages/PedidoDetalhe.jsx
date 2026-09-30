@@ -29,7 +29,8 @@ export default function PedidoDetalhe() {
   async function avancar() {
     const n = etapaVista + 1;
     if (n > ETAPAS.length) return;
-    if (antesDeAvancar.current && !(await antesDeAvancar.current(true))) return;
+    // (true, true): indo para a frente, pelo botão "Próxima etapa" (a etapa aberta pode pedir confirmação)
+    if (antesDeAvancar.current && !(await antesDeAvancar.current(true, true))) return;
     if (!podeEditar || n <= p.etapa) { setVista(n); return; }
     let clienteAprovou = false;
     if (etapaVista === 1) {
@@ -484,9 +485,23 @@ function Etapa2({ p, podeEditar, recarregar, antesDeAvancar }) {
     }
   }
 
-  // "Próxima etapa" salva antes de sair, se algo mudou ou a quantidade ainda não foi salva
+  // "Próxima etapa" abre a confirmação: salva a etapa 2 e vai para a próxima. O stepper e "Etapa anterior"
+  // só salvam, se algo mudou
   React.useEffect(() => {
-    antesDeAvancar.current = podeEditar ? async (frente) => (alterado || (frente && !(Number(p.quantidade_producao) > 0)) ? salvar() : true) : null;
+    antesDeAvancar.current = podeEditar ? async (frente, pelaProxima) => {
+      const naoSalva = !(Number(p.quantidade_producao) > 0);
+      if (!pelaProxima) return alterado || (frente && naoSalva) ? salvar() : true;
+      if (!(Number(f.quantidade) > 0)) { setErro('Informe a quantidade a produzir'); return false; }
+      if (!f.unidade.trim()) { setErro('Informe a unidade'); return false; }
+      const perda = f.maquinas.length && prevista.rendimento_pct < 100 ? `, ${fmtQtd(prevista.quantidade)} ${f.unidade} previstas pelo rendimento de ${fmtQtd(prevista.rendimento_pct, 2)} %` : '';
+      const ok = await confirmar({
+        titulo: `Salvar a produção e ir para a etapa 3?`,
+        mensagem: `A etapa 2 será salva com ${fmtQtd(producao)} ${f.unidade.trim()} planejadas${perda} e custo global de ${fmtBRL(custoGlobal)}. Depois o pedido vai para a etapa 3, ${ETAPAS[2]?.nome || 'Custos'}. Você pode voltar e alterar quando quiser.`,
+        confirmarTexto: `Salvar e ir para ${ETAPAS[2]?.nome || 'a etapa 3'}`, cancelarTexto: 'Continuar na etapa 2',
+      });
+      if (!ok) return false;
+      return alterado || naoSalva ? salvar() : true;
+    } : null;
     return () => { antesDeAvancar.current = null; };
   });
 
