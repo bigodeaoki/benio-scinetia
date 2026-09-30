@@ -60,6 +60,27 @@ function menuDe(papel) {
 export default function Shell() {
   const s = React.useContext(SessaoContext);
   const { pathname } = useLocation();
+  // Aba aberta durante um deploy: confere de tempos em tempos (e ao voltar para a aba) se o servidor
+  // já entrega um bundle novo e, se sim, avisa para recarregar em vez de deixar a tela antiga no ar
+  const [novaVersao, setNovaVersao] = React.useState(false);
+  React.useEffect(() => {
+    const atual = document.querySelector('script[src*="/assets/index-"]')?.getAttribute('src');
+    if (!atual) return undefined;
+    let parado = false;
+    const conferir = async () => {
+      try {
+        const html = await (await fetch(`/index.html?t=${Date.now()}`, { cache: 'no-store' })).text();
+        const novo = html.match(/\/assets\/index-[^"']+\.js/)?.[0];
+
+        if (!parado && novo && novo !== atual) setNovaVersao(true);
+      } catch {
+        // sem rede agora: tenta na próxima
+      }
+    };
+    const timer = setInterval(conferir, 60000);
+    window.addEventListener('focus', conferir);
+    return () => { parado = true; clearInterval(timer); window.removeEventListener('focus', conferir); };
+  }, []);
   const papel = s.usuario?.papel;
   const MENU = menuDe(papel);
   const item = MENU.find((m) => m.caminho && (m.fim ? pathname === m.caminho : pathname.startsWith(m.caminho))) || MENU[0];
@@ -104,6 +125,12 @@ export default function Shell() {
           </button>
         </header>
         <main className="conteudo">
+          {novaVersao && (
+            <div className="alerta alerta-aviso" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+              <span>Há uma versão nova do sistema. Recarregue a página para ver as últimas mudanças.</span>
+              <button className="botao botao-mini" onClick={() => window.location.reload()}>Recarregar agora</button>
+            </div>
+          )}
           <Routes>
             <Route index element={<Dashboard />} />
             {!ehAdmin && <Route path="materias" element={<Materias />} />}
