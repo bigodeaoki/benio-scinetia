@@ -61,7 +61,7 @@ export class PedidosService {
       [id],
     );
     const [amostras]: any = await this.pool.query(
-      `SELECT a.id, a.formulacao_id, f.nome AS formulacao_nome, a.quantidade, a.unidade, a.envase_id, v.nome AS envase_nome, a.embalagens, a.logistica,
+      `SELECT a.id, a.formulacao_id, f.nome AS formulacao_nome, a.quantidade, a.unidade, a.envase_id, v.nome AS envase_nome, a.embalagens, a.logistica, a.custo_materia_prima, a.custo_mp_incompleto,
               a.data_envio, a.observacoes, a.ativo, u.nome AS usuario_nome, a.criado_em, a.atualizado_em
          FROM pedido_amostras a JOIN formulacoes f ON f.id = a.formulacao_id LEFT JOIN envases v ON v.id = a.envase_id LEFT JOIN usuarios u ON u.id = a.usuario_id
         WHERE a.pedido_id = ? ORDER BY a.ativo DESC, a.data_envio DESC, a.criado_em DESC`,
@@ -123,9 +123,13 @@ export class PedidosService {
     const ativas = amostras.filter((a) => a.ativo);
     const quantidades: Record<string, number> = {};
     for (const a of ativas) quantidades[a.unidade] = (quantidades[a.unidade] || 0) + Number(a.quantidade);
+    const logistica = Math.round(ativas.reduce((s, a) => s + Number(a.logistica), 0) * 100) / 100;
+    const materiaPrima = Math.round(ativas.reduce((s, a) => s + Number(a.custo_materia_prima || 0), 0) * 100) / 100;
     return {
       envios: ativas.length,
-      logistica_total: Math.round(ativas.reduce((s, a) => s + Number(a.logistica), 0) * 100) / 100,
+      logistica_total: logistica,
+      // Gasto que a empresa arca: fica à parte e não entra no custo global do pedido
+      materia_prima_total: materiaPrima, custo_total: Math.round((logistica + materiaPrima) * 100) / 100, incompletos: ativas.filter((a) => a.custo_mp_incompleto).length,
       embalagens_total: ativas.reduce((s, a) => s + Number(a.embalagens), 0),
       quantidades: Object.entries(quantidades).map(([unidade, total]) => ({ unidade, total: Math.round(total * 1000) / 1000 })),
     };
@@ -388,12 +392,12 @@ export class PedidosService {
     const a = await this.validarAmostra(escopo, pedido, dto);
     const amostraId = novoId();
     await this.pool.query(
-      'INSERT INTO pedido_amostras (id, pedido_id, formulacao_id, quantidade, unidade, envase_id, embalagens, logistica, data_envio, observacoes, usuario_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
-      [amostraId, id, a.formulacao_id, a.quantidade, a.unidade, a.envase_id, a.embalagens, a.logistica, a.data_envio, a.observacoes, usuarioId],
+      'INSERT INTO pedido_amostras (id, pedido_id, formulacao_id, quantidade, unidade, envase_id, embalagens, logistica, custo_materia_prima, custo_mp_incompleto, data_envio, observacoes, usuario_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
+      [amostraId, id, a.formulacao_id, a.quantidade, a.unidade, a.envase_id, a.embalagens, a.logistica, a.custo_materia_prima, a.custo_mp_incompleto, a.data_envio, a.observacoes, usuarioId],
     );
     await this.auditoria.registrar(null, {
       matriz_id: pedido.matriz_id, empresa_id: pedido.empresa_id, usuario_id: usuarioId, acao: 'pedido.amostra_enviada', entidade: 'pedido_amostras', entidade_id: amostraId,
-      detalhes: { numero: pedido.numero, quantidade: a.quantidade, unidade: a.unidade, embalagens: a.embalagens, logistica: a.logistica },
+      detalhes: { numero: pedido.numero, quantidade: a.quantidade, unidade: a.unidade, embalagens: a.embalagens, logistica: a.logistica, custo_materia_prima: a.custo_materia_prima },
     });
     return this.detalhar(escopo, empresaId, id);
   }
@@ -403,12 +407,12 @@ export class PedidosService {
     await this.exigirAmostra(id, amostraId);
     const a = await this.validarAmostra(escopo, pedido, dto);
     await this.pool.query(
-      'UPDATE pedido_amostras SET formulacao_id=?, quantidade=?, unidade=?, envase_id=?, embalagens=?, logistica=?, data_envio=?, observacoes=? WHERE id=? AND pedido_id=?',
-      [a.formulacao_id, a.quantidade, a.unidade, a.envase_id, a.embalagens, a.logistica, a.data_envio, a.observacoes, amostraId, id],
+      'UPDATE pedido_amostras SET formulacao_id=?, quantidade=?, unidade=?, envase_id=?, embalagens=?, logistica=?, custo_materia_prima=?, custo_mp_incompleto=?, data_envio=?, observacoes=? WHERE id=? AND pedido_id=?',
+      [a.formulacao_id, a.quantidade, a.unidade, a.envase_id, a.embalagens, a.logistica, a.custo_materia_prima, a.custo_mp_incompleto, a.data_envio, a.observacoes, amostraId, id],
     );
     await this.auditoria.registrar(null, {
       matriz_id: pedido.matriz_id, empresa_id: pedido.empresa_id, usuario_id: usuarioId, acao: 'pedido.amostra_alterada', entidade: 'pedido_amostras', entidade_id: amostraId,
-      detalhes: { numero: pedido.numero, quantidade: a.quantidade, unidade: a.unidade, logistica: a.logistica },
+      detalhes: { numero: pedido.numero, quantidade: a.quantidade, unidade: a.unidade, logistica: a.logistica, custo_materia_prima: a.custo_materia_prima },
     });
     return this.detalhar(escopo, empresaId, id);
   }
@@ -437,10 +441,31 @@ export class PedidosService {
       });
       envaseId = v.id;
     }
+    // Custo da matéria-prima gasta na amostra: a quantidade da amostra vale em unidades da formulação
+    const custo = await this.custoMateriaPrimaAmostra(formulacaoId, dto.quantidade);
     return {
       formulacao_id: formulacaoId, quantidade: dto.quantidade, unidade: dto.unidade?.trim() || 'un', envase_id: envaseId,
-      embalagens: dto.embalagens ?? 0, logistica: dto.logistica ?? 0, data_envio: dto.data_envio, observacoes: dto.observacoes?.trim() || null,
+      embalagens: dto.embalagens ?? 0, logistica: dto.logistica ?? 0, custo_materia_prima: custo.total, custo_mp_incompleto: custo.incompleto ? 1 : 0,
+      data_envio: dto.data_envio, observacoes: dto.observacoes?.trim() || null,
     };
+  }
+
+  // Soma, ingrediente a ingrediente, o necessário para a quantidade da amostra × valor de compra.
+  // Ingrediente sem preço ou sem conversão fica de fora e marca o custo como incompleto
+  private async custoMateriaPrimaAmostra(formulacaoId: string, quantidade: number): Promise<{ total: number; incompleto: boolean }> {
+    const [itens]: any = await this.pool.query(
+      'SELECT i.quantidade, i.unidade, m.valor_compra, m.unidade AS unidade_compra FROM formulacao_itens i JOIN materias_primas m ON m.id = i.materia_prima_id WHERE i.formulacao_id = ?',
+      [formulacaoId],
+    );
+    let total = 0;
+    let incompleto = false;
+    for (const i of itens) {
+      const n = necessidade(Number(i.quantidade), i.unidade, quantidade);
+      const c = custoMateriaPrima(n.quantidade, n.unidade, i.valor_compra, i.unidade_compra);
+      if (c.custo == null) incompleto = true;
+      else total += c.custo;
+    }
+    return { total: Math.round(total * 100) / 100, incompleto };
   }
 
   private async exigirAmostra(pedidoId: string, amostraId: string) {

@@ -242,18 +242,20 @@ function Etapa1({ p, podeEditar, recarregar, empresaDe }) {
 
       <Titulo>Envios de amostra</Titulo>
       <div className="alerta alerta-info">
-        Cada envio registra a quantidade da formulação, as embalagens usadas e o valor da logística. É só para saber quanto foi gasto em amostras: <strong>não entra no custo do pedido</strong>.
+        Cada envio registra a quantidade da formulação, as embalagens usadas, o valor da logística e o custo da matéria-prima gasta, calculado no salvamento pela fórmula e pelos preços do cadastro.
+        É gasto que a empresa arca: fica à parte e <strong>não entra no custo global do pedido</strong>.
       </div>
       <div className="grade-kpis">
-        <div className="kpi"><div className="kpi-rotulo">Envios</div><div className="kpi-valor">{r.envios}</div></div>
-        <div className="kpi"><div className="kpi-rotulo">Logística</div><div className="kpi-valor">{fmtBRL(r.logistica_total)}</div><div className="kpi-extra">fora do custo do pedido</div></div>
-        <div className="kpi"><div className="kpi-rotulo">Embalagens</div><div className="kpi-valor">{r.embalagens_total}</div></div>
+        <div className="kpi"><div className="kpi-rotulo">Envios</div><div className="kpi-valor">{r.envios}</div><div className="kpi-extra">{r.embalagens_total} embalagem(ns)</div></div>
         <div className="kpi"><div className="kpi-rotulo">Formulação enviada</div><div className="kpi-valor" style={{ fontSize: 18 }}>{r.quantidades.length ? r.quantidades.map((q) => `${fmtQtd(q.total)} ${q.unidade}`).join(' · ') : '—'}</div></div>
+        <div className="kpi"><div className="kpi-rotulo">Matéria-prima gasta</div><div className="kpi-valor">{fmtBRL(r.materia_prima_total)}</div><div className="kpi-extra">{r.incompletos ? `${r.incompletos} envio(s) com ingrediente sem preço` : 'pela fórmula e pelos preços do cadastro'}</div></div>
+        <div className="kpi"><div className="kpi-rotulo">Logística</div><div className="kpi-valor">{fmtBRL(r.logistica_total)}</div></div>
+        <div className="kpi" style={{ background: '#fdf2d9', border: '1px solid #e9c46a' }}><div className="kpi-rotulo">Custo das amostras</div><div className="kpi-valor">{fmtBRL(r.custo_total)}</div><div className="kpi-extra">a empresa arca; fora do custo global</div></div>
       </div>
       {!p.amostras.length ? <Vazio msg="Nenhum envio de amostra" /> : (
         <div className="tabela-envolucro">
           <table className="tabela">
-            <thead><tr><th>Data</th><th>Formulação</th><th className="num">Quantidade</th><th className="num">Embalagens</th><th className="num">Logística</th><th>Observações</th><th>Por</th><th>Status</th>{podeEditar && <th className="acoes">Ações</th>}</tr></thead>
+            <thead><tr><th>Data</th><th>Formulação</th><th className="num">Quantidade</th><th className="num">Embalagens</th><th className="num">Matéria-prima</th><th className="num">Logística</th><th>Observações</th><th>Por</th><th>Status</th>{podeEditar && <th className="acoes">Ações</th>}</tr></thead>
             <tbody>
               {p.amostras.map((a) => (
                 <tr key={a.id} style={a.ativo ? undefined : { opacity: 0.55 }}>
@@ -261,6 +263,7 @@ function Etapa1({ p, podeEditar, recarregar, empresaDe }) {
                   <td>{a.formulacao_nome}</td>
                   <td className="num">{fmtQtd(a.quantidade)} {a.unidade}</td>
                   <td className="num">{a.embalagens}{a.envase_nome ? <span className="texto-suave"> · {a.envase_nome}</span> : ''}</td>
+                  <td className="num">{a.custo_materia_prima != null ? <>{fmtBRL(a.custo_materia_prima)}{a.custo_mp_incompleto ? <> <Badge cor="amarelo" >incompleto</Badge></> : null}</> : <span className="texto-suave">—</span>}</td>
                   <td className="num">{fmtBRL(a.logistica)}</td>
                   <td className="texto-suave">{a.observacoes || '—'}</td>
                   <td>{a.usuario_nome || '—'}</td>
