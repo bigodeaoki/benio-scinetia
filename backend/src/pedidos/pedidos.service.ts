@@ -7,7 +7,7 @@ import { FormulacoesService } from '../formulacoes/formulacoes.service';
 import { MateriasService } from '../materias/materias.service';
 import { novoId } from '../shared/ids';
 import { necessidade, producaoPrevista } from '../shared/necessidade';
-import { AmostraDto, MaquinaPedidoDto, PedidoDto, ProducaoDto, TrocaFormulacaoDto } from './pedidos.dto';
+import { AmostraDto, CustoDto, CustosDto, MaquinaPedidoDto, PedidoDto, ProducaoDto, TrocaFormulacaoDto } from './pedidos.dto';
 
 const COLUNAS = `p.id, p.matriz_id, p.empresa_id, e.nome AS empresa_nome, p.numero, p.cliente_id, c.razao_social AS cliente_nome, c.nome_fantasia AS cliente_fantasia,
   p.formulacao_id, f.nome AS formulacao_nome, f.empresa_id AS formulacao_empresa_id,
@@ -89,9 +89,14 @@ export class PedidosService {
     );
     // O rendimento das máquinas não muda a matéria-prima: reduz o que sai (300 a 90 % produzem 270)
     const prevista = producao > 0 ? producaoPrevista(producao, maquinas.map((m: any) => Number(m.rendimento_pct))) : null;
+    const [custos]: any = await this.pool.query(
+      'SELECT id, tipo, referencia_id, descricao, quantidade, unidade, valor_unitario, total, ordem FROM pedido_custos WHERE pedido_id = ? ORDER BY ordem',
+      [id],
+    );
     return {
       ...pedido, formulacoes, amostras, amostras_resumo: this.resumoAmostras(amostras), formulacao_ingredientes: ingredientes, maquinas,
       rendimento_combinado_pct: prevista ? prevista.rendimento_pct : null, producao_prevista: prevista ? prevista.quantidade : null,
+      custos, custos_resumo: this.resumoCustos(custos, producao, prevista ? prevista.quantidade : null),
     };
   }
 
@@ -239,6 +244,95 @@ export class PedidosService {
       if (!m.ativo) throw new BadRequestException(`Máquina "${m.titulo}" está inativa`);
       return { maquina_id: m.id as string, titulo: m.titulo as string, rendimento_pct: item.rendimento_pct ?? Number(m.rendimento_pct) };
     });
+  }
+
+  // Etapa 3 (Custos): linhas de custo do pedido, regravadas por inteiro. Nome e valor
+  // unitário ficam gravados na hora: mudar o cadastro depois não altera o pedido
+  async definirCustos(escopo: EscopoSessao, empresaId: string, usuarioId: string, id: string, dto: CustosDto) {
+    const pedido = await this.exigirRascunho(escopo, empresaId, id);
+    const linhas = await this.validarCustos(escopo, pedido, dto.itens);
+    const cx = await this.pool.getConnection();
+    try {
+      await cx.beginTransaction();
+      await cx.query('DELETE FROM pedido_custos WHERE pedido_id = ?', [id]);
+      if (linhas.length) {
+        await cx.query('INSERT INTO pedido_custos (id, pedido_id, tipo, referencia_id, descricao, quantidade, unidade, valor_unitario, total, ordem) VALUES ?', [
+          linhas.map((l, i) => [novoId(), id, l.tipo, l.referencia_id, l.descricao, l.quantidade, l.unidade, l.valor_unitario, l.total, i + 1]),
+        ]);
+      }
+      await cx.commit();
+    } catch (e) {
+      await cx.rollback();
+      throw e;
+    } finally {
+      cx.release();
+    }
+    const total = Math.round(linhas.reduce((s, l) => s + l.total, 0) * 100) / 100;
+    await this.auditoria.registrar(null, {
+      matriz_id: pedido.matriz_id, empresa_id: pedido.empresa_id, usuario_id: usuarioId, acao: 'pedido.custos_definidos', entidade: 'pedidos', entidade_id: id,
+      detalhes: { numero: pedido.numero, linhas: linhas.length, total },
+    });
+    return this.detalhar(escopo, empresaId, id);
+  }
+
+  private async validarCustos(escopo: EscopoSessao, pedido: any, itens: CustoDto[]) {
+    const saida: Array<{ tipo: string; referencia_id: string | null; descricao: string; quantidade: number; unidade: string; valor_unitario: number; total: number }> = [];
+    for (let i = 0; i < itens.length; i++) {
+      const item = itens[i];
+      let descricao = item.descricao?.trim() || '';
+      let unidade = item.unidade?.trim() || '';
+      let valor = item.valor_unitario;
+      if (item.tipo === 'outro') {
+        if (!descricao) throw new BadRequestException(`Custo ${i + 1}: descreva o custo avulso`);
+      } else {
+        if (!item.referencia_id) throw new BadRequestException(`Custo ${i + 1}: escolha o item do cadastro`);
+        const ref = await this.referenciaCusto(escopo, pedido, item.tipo, item.referencia_id);
+        descricao = ref.nome;
+        if (!unidade) unidade = ref.unidade;
+        if (valor == null && ref.custo_hora != null) valor = Number(ref.custo_hora);
+      }
+      const valorUnitario = Number(valor ?? 0);
+      saida.push({
+        tipo: item.tipo, referencia_id: item.referencia_id || null, descricao: descricao.slice(0, 150), quantidade: item.quantidade, unidade: unidade || 'un',
+        valor_unitario: valorUnitario, total: Math.round(item.quantidade * valorUnitario * 100) / 100,
+      });
+    }
+    return saida;
+  }
+
+  // Item do cadastro na empresa do pedido (matéria-prima e envase: visíveis para ela, inclusive da matriz)
+  private async referenciaCusto(escopo: EscopoSessao, pedido: any, tipo: string, refId: string): Promise<{ nome: string; unidade: string; custo_hora?: number }> {
+    if (tipo === 'materia_prima') {
+      const m = await this.materias.buscar(escopo, pedido.empresa_id, refId).catch(() => null);
+      if (!m) throw new BadRequestException('Matéria-prima não encontrada para a empresa do pedido');
+      return { nome: m.nome, unidade: m.unidade };
+    }
+    if (tipo === 'envase') {
+      const v = await this.envases.buscar(escopo, pedido.empresa_id, refId).catch(() => null);
+      if (!v) throw new BadRequestException('Item de envase não encontrado para a empresa do pedido');
+      return { nome: v.nome, unidade: 'un' };
+    }
+    const tabelas: Record<string, { sql: string; erro: string }> = {
+      maquina: { sql: 'SELECT titulo AS nome, custo_hora FROM maquinas WHERE id = ? AND empresa_id = ?', erro: 'Máquina não encontrada na empresa do pedido' },
+      mao_de_obra: { sql: 'SELECT nome, custo_hora FROM funcionarios WHERE id = ? AND empresa_id = ?', erro: 'Funcionário não encontrado na empresa do pedido' },
+      veiculo: { sql: "SELECT TRIM(CONCAT_WS(' ', tipo, marca, modelo, placa)) AS nome, custo_hora FROM veiculos WHERE id = ? AND empresa_id = ?", erro: 'Veículo não encontrado na empresa do pedido' },
+    };
+    const t = tabelas[tipo];
+    const [rows]: any = await this.pool.query(t.sql, [refId, pedido.empresa_id]);
+    if (!rows.length) throw new BadRequestException(t.erro);
+    return { nome: rows[0].nome, unidade: 'h', custo_hora: Number(rows[0].custo_hora) };
+  }
+
+  // Total por tipo, total geral e custo por unidade planejada e prevista
+  private resumoCustos(custos: any[], planejada: number, prevista: number | null) {
+    const porTipo: Record<string, number> = {};
+    for (const c of custos) porTipo[c.tipo] = (porTipo[c.tipo] || 0) + Number(c.total);
+    const total = Math.round(Object.values(porTipo).reduce((s, v) => s + v, 0) * 100) / 100;
+    const unitario = (base: number | null) => (base && base > 0 ? Math.round((total / base) * 10000) / 10000 : null);
+    return {
+      por_tipo: Object.entries(porTipo).map(([tipo, valor]) => ({ tipo, total: Math.round(valor * 100) / 100 })),
+      total, linhas: custos.length, custo_unitario_planejado: unitario(planejada), custo_unitario_previsto: unitario(prevista),
+    };
   }
 
   // Etapa onde o usuário parou (o stepper), só em rascunho. Para sair da etapa 1 é preciso ter

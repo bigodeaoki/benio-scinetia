@@ -6,7 +6,7 @@ import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsInt, IsNumber, IsOptional, Is
 export const ETAPAS = [
   { numero: 1, nome: 'Formulação e amostras', definida: true },
   { numero: 2, nome: 'Produção', definida: true },
-  { numero: 3, nome: 'Etapa 3', definida: false },
+  { numero: 3, nome: 'Custos', definida: true },
   { numero: 4, nome: 'Etapa 4', definida: false },
 ];
 export const STATUS_PEDIDO = ['rascunho', 'concluido', 'cancelado'] as const;
@@ -111,4 +111,34 @@ export class ProducaoDto {
   @IsOptional() @IsArray({ message: 'Máquinas: lista' }) @ArrayMaxSize(30, { message: 'No máximo 30 máquinas' })
   @ValidateNested({ each: true }) @Type(() => MaquinaPedidoDto)
   maquinas?: MaquinaPedidoDto[];
+}
+
+// Etapa 3 (Custos): uma linha de custo. Com referência a um cadastro, o nome vem de lá e o
+// valor unitário, se não informado, é o custo-hora do cadastro; "outro" é custo avulso
+export const TIPOS_CUSTO = ['materia_prima', 'envase', 'maquina', 'mao_de_obra', 'veiculo', 'outro'] as const;
+
+export class CustoDto {
+  @IsIn(TIPOS_CUSTO as unknown as string[], { message: 'Tipo de custo inválido' })
+  tipo: string;
+
+  @IsOptional() @IsUUID('4', { message: 'Item do custo inválido' })
+  referencia_id?: string;
+
+  @IsOptional() @IsString() @MaxLength(150, { message: 'Descrição: até 150 caracteres' })
+  descricao?: string;
+
+  @IsNumber({ maxDecimalPlaces: 3 }, { message: 'Quantidade deve ser um número (até 3 casas)' }) @Min(0, { message: 'Quantidade não pode ser negativa' })
+  quantidade: number;
+
+  @IsOptional() @IsString() @Length(1, 20, { message: 'Unidade: entre 1 e 20 caracteres' })
+  unidade?: string;
+
+  @IsOptional() @IsNumber({ maxDecimalPlaces: 4 }, { message: 'Valor unitário deve ser um número (até 4 casas)' }) @Min(0, { message: 'Valor unitário não pode ser negativo' })
+  valor_unitario?: number;
+}
+
+export class CustosDto {
+  @IsArray({ message: 'Itens: lista' }) @ArrayMaxSize(200, { message: 'No máximo 200 linhas de custo' })
+  @ValidateNested({ each: true }) @Type(() => CustoDto)
+  itens: CustoDto[];
 }

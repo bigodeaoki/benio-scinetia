@@ -2,7 +2,7 @@ import { BadRequestException, Body, Controller, Get, Param, ParseUUIDPipe, Post,
 import { EmpresaId, Escopo, EscopoSessao, Papeis, UsuarioAtual } from '../auth/decorators';
 import { PERM } from '../auth/papeis';
 import { AtivoDto } from '../shared/dto';
-import { AmostraDto, ETAPAS, EtapaDto, PedidoDto, ProducaoDto, StatusPedidoDto, TrocaFormulacaoDto } from './pedidos.dto';
+import { AmostraDto, CustosDto, ETAPAS, EtapaDto, PedidoDto, ProducaoDto, StatusPedidoDto, TrocaFormulacaoDto } from './pedidos.dto';
 import { PedidosService } from './pedidos.service';
 
 const Uuid = () => new ParseUUIDPipe({ exceptionFactory: () => new BadRequestException('Identificador inválido') });
@@ -49,6 +49,12 @@ export class PedidosController {
   @Escrita() @Put(':id/producao')
   definirProducao(@Escopo() escopo: EscopoSessao, @EmpresaId() empresaId: string, @UsuarioAtual() usuario: any, @Param('id', Uuid()) id: string, @Body() dto: ProducaoDto) {
     return this.service.definirProducao(escopo, empresaId, usuario.id, id, dto);
+  }
+
+  // Etapa 3: linhas de custo do pedido (papéis de custos, não os de pedido)
+  @Papeis(...PERM.custos) @Put(':id/custos')
+  definirCustos(@Escopo() escopo: EscopoSessao, @EmpresaId() empresaId: string, @UsuarioAtual() usuario: any, @Param('id', Uuid()) id: string, @Body() dto: CustosDto) {
+    return this.service.definirCustos(escopo, empresaId, usuario.id, id, dto);
   }
 
   // Nova formulação do pedido: a atual entra em desuso

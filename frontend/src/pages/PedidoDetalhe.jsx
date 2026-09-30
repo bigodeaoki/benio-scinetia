@@ -4,7 +4,7 @@ import { ClipboardList } from 'lucide-react';
 import { SessaoContext } from '../App.jsx';
 import { api } from '../api.js';
 import { Badge, Campo, Carregando, Erro, Modal, Vazio, confirmar, fmtBRL, fmtData, fmtDataHora, fmtQtd, hoje, toast, useDados } from '../ui.jsx';
-import { BuscaFormulacao, ETAPAS, PODE_EDITAR_PEDIDOS, STATUS, Stepper, fmtNumero, necessidade, producaoPrevista } from './pedidos-comum.jsx';
+import { BuscaFormulacao, ETAPAS, PODE_EDITAR_CUSTOS, PODE_EDITAR_PEDIDOS, STATUS, Stepper, fmtNumero, necessidade, producaoPrevista } from './pedidos-comum.jsx';
 
 // Página do pedido, também para criar (/pedidos/novo): stepper com as etapas
 // no topo. Etapa 1: dados do pedido, histórico de formulações (a nova põe a
@@ -21,6 +21,7 @@ export default function PedidoDetalhe() {
   const etapaVista = novo ? 1 : vista || p?.etapa || 1;
   const papelEdita = PODE_EDITAR_PEDIDOS.includes(s.usuario?.papel) && (novo || !!p?.editavel);
   const podeEditar = papelEdita && (novo || p?.status === 'rascunho');
+  const editaCustos = PODE_EDITAR_CUSTOS.includes(s.usuario?.papel) && !!p?.editavel && p?.status === 'rascunho';
   const empresaDe = (x, campo = 'empresa') => (x[`${campo}_id`] === s.escopo?.matriz?.id ? `${x[`${campo}_nome`]} (matriz)` : x[`${campo}_nome`]);
 
   // Avançar salva a etapa em que o pedido está; voltar e clicar no stepper só mudam a visão.
@@ -28,7 +29,7 @@ export default function PedidoDetalhe() {
   async function avancar() {
     const n = etapaVista + 1;
     if (n > ETAPAS.length) return;
-    if (podeEditar && antesDeAvancar.current && !(await antesDeAvancar.current())) return;
+    if (antesDeAvancar.current && !(await antesDeAvancar.current())) return;
     if (!podeEditar || n <= p.etapa) { setVista(n); return; }
     let clienteAprovou = false;
     if (etapaVista === 1) {
@@ -85,7 +86,7 @@ export default function PedidoDetalhe() {
       {novo && <div className="alerta alerta-info">Etapa 1: informe o cliente e, se já souber, a formulação inicial. Ao criar, o pedido ganha número e você segue nesta página, com o histórico de formulações e os envios de amostra.</div>}
       {!novo && !podeEditar && (
         <div className="alerta alerta-info">
-          {p.status !== 'rascunho' ? `Pedido ${STATUS[p.status]?.[0].toLowerCase()}: somente leitura.` : !p.editavel ? `Pedido de ${p.empresa_nome}: só essa empresa, ou a dona do grupo, altera.` : 'Seu papel só consulta pedidos.'}
+          {p.status !== 'rascunho' ? `Pedido ${STATUS[p.status]?.[0].toLowerCase()}: somente leitura.` : !p.editavel ? `Pedido de ${p.empresa_nome}: só essa empresa, ou a dona do grupo, altera.` : editaCustos ? 'Seu papel edita só a etapa de custos; o restante é consulta.' : 'Seu papel só consulta pedidos.'}
         </div>
       )}
       {etapaVista === 1 ? (
@@ -96,6 +97,8 @@ export default function PedidoDetalhe() {
         </>
       ) : etapaVista === 2 ? (
         <Etapa2 key={p.id} p={p} podeEditar={podeEditar} recarregar={recarregar} antesDeAvancar={antesDeAvancar} />
+      ) : etapaVista === 3 ? (
+        <Etapa3 key={p.id} p={p} podeEditar={editaCustos} recarregar={recarregar} antesDeAvancar={antesDeAvancar} />
       ) : <div className="vazio">Etapa {etapaVista} · {ETAPAS[etapaVista - 1]?.nome}: conteúdo em definição.</div>}
       {!novo && (
         <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 18 }}>
@@ -542,6 +545,198 @@ function Etapa2({ p, podeEditar, recarregar, antesDeAvancar }) {
             <div className="kpi-rotulo">Produção prevista</div>
             <div className="kpi-valor">{producao ? `${fmtQtd(prevista.quantidade)} ${f.unidade}` : '—'}</div>
             <div className="kpi-extra">{producao && prevista.rendimento_pct < 100 ? `${fmtQtd(producao - prevista.quantidade)} ${f.unidade} a menos pelo rendimento` : 'sem perda pelo rendimento'}</div>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+// Tipos de custo: de onde vem o item, como nomear e o que preencher por padrão
+const TIPOS_CUSTO = [
+  { valor: 'materia_prima', rotulo: 'Matérias-primas', rota: () => '/materias', nome: (x) => x.nome, unidade: (x) => x.unidade || 'un', valorPadrao: () => '' },
+  { valor: 'envase', rotulo: 'Envase', rota: () => '/envases', nome: (x) => x.nome, unidade: () => 'un', valorPadrao: () => '' },
+  { valor: 'maquina', rotulo: 'Máquinas', rota: (p) => `/maquinas?empresa=${p.empresa_id}`, nome: (x) => x.titulo, unidade: () => 'h', valorPadrao: (x) => x.custo_hora ?? '' },
+  { valor: 'mao_de_obra', rotulo: 'Mão de obra', rota: (p) => `/funcionarios?empresa=${p.empresa_id}`, nome: (x) => `${x.nome}${x.categoria ? ` · ${x.categoria}` : ''}`, unidade: () => 'h', valorPadrao: (x) => x.custo_hora ?? '' },
+  { valor: 'veiculo', rotulo: 'Logística', rota: (p) => `/veiculos?empresa=${p.empresa_id}`, nome: (x) => [x.tipo, x.marca, x.modelo, x.placa].filter(Boolean).join(' '), unidade: () => 'h', valorPadrao: (x) => x.custo_hora ?? '' },
+  { valor: 'outro', rotulo: 'Outros custos', rota: null },
+];
+const tipoDe = (v) => TIPOS_CUSTO.find((t) => t.valor === v);
+const linhaDe = (c, k) => ({ k, tipo: c.tipo, referencia_id: c.referencia_id || '', descricao: c.descricao, quantidade: c.quantidade, unidade: c.unidade, valor_unitario: c.valor_unitario });
+const assinaturaCustos = (ls) => JSON.stringify(ls.map((l) => [l.tipo, l.referencia_id || '', l.descricao, Number(l.quantidade) || 0, l.unidade, Number(l.valor_unitario) || 0]));
+const totalLinha = (l) => Math.round((Number(l.quantidade) || 0) * (Number(l.valor_unitario) || 0) * 100) / 100;
+
+// Etapa 3, Custos: linhas de custo do pedido, puxadas dos cadastros ou avulsas, com o
+// total e o custo por unidade produzida. Nome e valor ficam gravados no pedido
+function Etapa3({ p, podeEditar, recarregar, antesDeAvancar }) {
+  const [linhas, setLinhas] = React.useState((p.custos || []).map((c, i) => linhaDe(c, i + 1)));
+  const proximaChave = React.useRef((p.custos || []).length + 1);
+  const [catalogos, setCatalogos] = React.useState({});
+  const [novo, setNovo] = React.useState({ tipo: 'materia_prima', referencia_id: '', descricao: '' });
+  const [erro, setErro] = React.useState(null);
+  const [salvando, setSalvando] = React.useState(false);
+
+  // Cadastros da empresa do pedido, cada um por conta própria: um 403 (ex.: mão de obra) não derruba os outros
+  React.useEffect(() => {
+    let vivo = true;
+    Promise.all(TIPOS_CUSTO.filter((t) => t.rota).map((t) => api(t.rota(p)).then((l) => [t.valor, (l || []).filter((x) => x.ativo !== 0)]).catch(() => [t.valor, null])))
+      .then((pares) => { if (vivo) setCatalogos(Object.fromEntries(pares)); });
+    return () => { vivo = false; };
+  }, [p.id]);
+
+  function adicionar(tipoValor, item, extra = {}) {
+    const t = tipoDe(tipoValor);
+    setLinhas((ls) => [...ls, {
+      k: proximaChave.current++, tipo: tipoValor, referencia_id: item?.id || '', descricao: item ? t.nome(item) : extra.descricao || '',
+      quantidade: extra.quantidade ?? (tipoValor === 'outro' ? 1 : ''), unidade: extra.unidade ?? (item ? t.unidade(item) : 'un'), valor_unitario: extra.valor_unitario ?? (item ? t.valorPadrao(item) : ''),
+    }]);
+  }
+
+  function adicionarNovo() {
+    setErro(null);
+    if (novo.tipo === 'outro') {
+      if (!novo.descricao.trim()) return setErro('Descreva o custo avulso');
+      adicionar('outro', null, { descricao: novo.descricao.trim() });
+      setNovo((n) => ({ ...n, descricao: '' }));
+      return;
+    }
+    const item = (catalogos[novo.tipo] || []).find((x) => x.id === novo.referencia_id);
+    if (!item) return setErro('Escolha o item do cadastro');
+    adicionar(novo.tipo, item);
+    setNovo((n) => ({ ...n, referencia_id: '' }));
+  }
+
+  // Puxa da etapa 2 o que ainda não está na lista: matérias-primas necessárias e máquinas do pedido
+  function trazerMateriasPrimas() {
+    for (const i of p.formulacao_ingredientes || []) {
+      if (linhas.some((l) => l.tipo === 'materia_prima' && l.referencia_id === i.materia_prima_id)) continue;
+      adicionar('materia_prima', { id: i.materia_prima_id, nome: i.materia_prima, unidade: i.necessario_unidade || i.unidade }, { quantidade: i.necessario ?? '', unidade: i.necessario_unidade || i.unidade });
+    }
+  }
+  function trazerMaquinas() {
+    for (const m of p.maquinas || []) {
+      if (linhas.some((l) => l.tipo === 'maquina' && l.referencia_id === m.maquina_id)) continue;
+      adicionar('maquina', { id: m.maquina_id, titulo: m.titulo, custo_hora: m.custo_hora }, { quantidade: '' });
+    }
+  }
+  const mudarLinha = (k, campo, valor) => setLinhas((ls) => ls.map((l) => (l.k === k ? { ...l, [campo]: valor } : l)));
+  const removerLinha = (k) => setLinhas((ls) => ls.filter((l) => l.k !== k));
+  const alterado = assinaturaCustos(linhas) !== assinaturaCustos((p.custos || []).map((c, i) => linhaDe(c, i)));
+  const total = Math.round(linhas.reduce((s, l) => s + totalLinha(l), 0) * 100) / 100;
+  const planejada = Number(p.quantidade_producao) || 0;
+  const prevista = Number(p.producao_prevista) || 0;
+
+  async function salvar() {
+    setErro(null);
+    const invalida = linhas.find((l) => !(Number(l.quantidade) >= 0) || !(Number(l.valor_unitario) >= 0) || (l.tipo === 'outro' && !String(l.descricao).trim()));
+    if (invalida) { setErro('Confira quantidade, valor unitário e descrição das linhas'); return false; }
+    setSalvando(true);
+    try {
+      await api(`/pedidos/${p.id}/custos`, { method: 'PUT', body: { itens: linhas.map((l) => ({
+        tipo: l.tipo, referencia_id: l.referencia_id || undefined, descricao: l.tipo === 'outro' ? String(l.descricao).trim() : undefined,
+        quantidade: Number(l.quantidade) || 0, unidade: l.unidade || undefined, valor_unitario: Number(l.valor_unitario) || 0,
+      })) } });
+      recarregar();
+      toast.sucesso('Custos salvos');
+      return true;
+    } catch (e) {
+      setErro(e.message);
+      return false;
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  // "Próxima etapa" salva antes de sair, se algo mudou
+  React.useEffect(() => {
+    antesDeAvancar.current = podeEditar ? async () => (alterado ? salvar() : true) : null;
+    return () => { antesDeAvancar.current = null; };
+  });
+
+  const grupos = TIPOS_CUSTO.map((t) => ({ t, itens: linhas.filter((l) => l.tipo === t.valor) })).filter((g) => g.itens.length);
+  const itensDoTipo = catalogos[novo.tipo];
+  const subtotal = (itens) => itens.reduce((s, l) => s + totalLinha(l), 0);
+
+  return (
+    <>
+      <Titulo>Custos do pedido</Titulo>
+      <div className="alerta alerta-info">
+        Adicione as linhas de custo. Matérias-primas e máquinas podem vir da etapa 2; mão de obra, veículos e envase vêm dos cadastros, com o custo por hora já preenchido.
+        Nome e valor ficam gravados no pedido: mudar o cadastro depois não altera este custo.
+      </div>
+      {!podeEditar && <div className="alerta alerta-info">Só dono, administrativo e financeiro editam os custos.</div>}
+      <Erro msg={erro} />
+      {podeEditar && (
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+          <button type="button" className="botao botao-secundario botao-mini" disabled={!(p.formulacao_ingredientes || []).length} onClick={trazerMateriasPrimas}>Trazer matérias-primas da etapa 2</button>
+          <button type="button" className="botao botao-secundario botao-mini" disabled={!(p.maquinas || []).length} onClick={trazerMaquinas}>Trazer máquinas da etapa 2</button>
+        </div>
+      )}
+      {podeEditar && (
+        <div className="linha-campos" style={{ alignItems: 'flex-end' }}>
+          <Campo rotulo="Tipo" largura={170}>
+            <select value={novo.tipo} onChange={(e) => setNovo({ tipo: e.target.value, referencia_id: '', descricao: '' })}>{TIPOS_CUSTO.map((t) => <option key={t.valor} value={t.valor}>{t.rotulo}</option>)}</select>
+          </Campo>
+          {novo.tipo === 'outro' ? (
+            <Campo rotulo="Descrição"><input value={novo.descricao} onChange={(e) => setNovo((n) => ({ ...n, descricao: e.target.value }))} placeholder="ex.: frete, análise de laboratório" /></Campo>
+          ) : (
+            <Campo rotulo="Item" dica={itensDoTipo === null ? 'Seu papel não acessa este cadastro' : itensDoTipo && !itensDoTipo.length ? 'Nenhum item ativo neste cadastro' : undefined}>
+              <select value={novo.referencia_id} onChange={(e) => setNovo((n) => ({ ...n, referencia_id: e.target.value }))} disabled={!itensDoTipo || !itensDoTipo.length}>
+                <option value="">Escolha…</option>
+                {(itensDoTipo || []).map((x) => <option key={x.id} value={x.id}>{tipoDe(novo.tipo).nome(x)}{x.custo_hora != null ? ` — ${fmtBRL(x.custo_hora)}/h` : ''}{x.origem === 'matriz' ? ' (da matriz)' : ''}</option>)}
+              </select>
+            </Campo>
+          )}
+          <button type="button" className="botao botao-secundario" style={{ marginBottom: 10 }} onClick={adicionarNovo}>+ Adicionar</button>
+        </div>
+      )}
+      {!linhas.length ? <Vazio msg="Nenhum custo lançado" /> : (
+        <div className="tabela-envolucro">
+          <table className="tabela">
+            <thead><tr><th>Item</th><th className="num">Quantidade</th><th>Unidade</th><th className="num">Valor unitário (R$)</th><th className="num">Total</th>{podeEditar && <th className="acoes">Ações</th>}</tr></thead>
+            <tbody>
+              {grupos.map(({ t, itens }) => (
+                <React.Fragment key={t.valor}>
+                  <tr style={{ background: '#f4f6fa' }}><td colSpan={4} className="negrito">{t.rotulo}</td><td className="num negrito">{fmtBRL(subtotal(itens))}</td>{podeEditar && <td />}</tr>
+                  {itens.map((l) => (
+                    <tr key={l.k}>
+                      <td>{podeEditar && l.tipo === 'outro' ? <input value={l.descricao} onChange={(e) => mudarLinha(l.k, 'descricao', e.target.value)} /> : l.descricao}</td>
+                      <td className="num">{podeEditar ? <input type="number" step="any" min="0" value={l.quantidade} onChange={(e) => mudarLinha(l.k, 'quantidade', e.target.value)} style={{ width: 110, textAlign: 'right' }} /> : fmtQtd(l.quantidade)}</td>
+                      <td>{podeEditar ? <input value={l.unidade} onChange={(e) => mudarLinha(l.k, 'unidade', e.target.value)} style={{ width: 70 }} /> : l.unidade}</td>
+                      <td className="num">{podeEditar ? <input type="number" step="0.0001" min="0" value={l.valor_unitario} onChange={(e) => mudarLinha(l.k, 'valor_unitario', e.target.value)} style={{ width: 120, textAlign: 'right' }} /> : fmtBRL(l.valor_unitario)}</td>
+                      <td className="num negrito">{fmtBRL(totalLinha(l))}</td>
+                      {podeEditar && <td className="acoes"><button type="button" className="botao botao-perigo botao-mini" onClick={() => removerLinha(l.k)}>Remover</button></td>}
+                    </tr>
+                  ))}
+                </React.Fragment>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {podeEditar && <button className="botao botao-secundario" style={{ marginTop: 8 }} disabled={salvando || !alterado} onClick={salvar}>{salvando ? 'Salvando…' : 'Salvar custos'}</button>}
+      {/* Resumão da etapa, no fim de tudo */}
+      <div style={{ marginTop: 20, padding: '14px 16px 4px', borderRadius: 12, background: 'var(--azul-100)', border: '1px solid #b9d0f0' }}>
+        <div className="texto-suave negrito" style={{ textTransform: 'uppercase', fontSize: 11, letterSpacing: 0.4, marginBottom: 10 }}>Resumo dos custos</div>
+        <div className="grade-kpis">
+          <div className="kpi">
+            <div className="kpi-rotulo">Custo total</div>
+            <div className="kpi-valor">{fmtBRL(total)}</div>
+            <div className="kpi-extra">{linhas.length} linha(s){alterado ? ' · ainda não salvo' : ''}</div>
+          </div>
+          <div className="kpi">
+            <div className="kpi-rotulo">Por unidade planejada</div>
+            <div className="kpi-valor">{planejada ? fmtBRL(total / planejada) : '—'}</div>
+            <div className="kpi-extra">{planejada ? `${fmtQtd(planejada)} ${p.unidade_producao}` : 'sem quantidade na etapa 2'}</div>
+          </div>
+          <div className="kpi" style={prevista && prevista < planejada ? { background: '#fdf2d9', border: '1px solid #e9c46a' } : undefined}>
+            <div className="kpi-rotulo">Por unidade prevista</div>
+            <div className="kpi-valor">{prevista ? fmtBRL(total / prevista) : '—'}</div>
+            <div className="kpi-extra">{prevista ? `${fmtQtd(prevista)} ${p.unidade_producao} depois do rendimento` : 'sem produção prevista'}</div>
+          </div>
+          <div className="kpi">
+            <div className="kpi-rotulo">Composição</div>
+            <div className="kpi-valor" style={{ fontSize: 13, lineHeight: 1.5 }}>{grupos.length ? grupos.map(({ t, itens }) => `${t.rotulo}: ${fmtBRL(subtotal(itens))}`).join(' · ') : '—'}</div>
           </div>
         </div>
       </div>

@@ -3,12 +3,14 @@ import { api } from '../api.js';
 
 // Partes compartilhadas entre a lista de pedidos e a página do pedido
 export const PODE_EDITAR_PEDIDOS = ['owner', 'vendas', 'administrativo'];
+// Etapa de custos: envolve custo-hora de funcionários, então só estes papéis editam
+export const PODE_EDITAR_CUSTOS = ['owner', 'administrativo', 'financeiro'];
 export const STATUS = { rascunho: ['Rascunho', 'amarelo'], concluido: ['Concluído', 'verde'], cancelado: ['Cancelado', 'cinza'] };
 // Etapas do pedido; as não definidas já aparecem no stepper
 export const ETAPAS = [
   { numero: 1, nome: 'Formulação e amostras', definida: true },
   { numero: 2, nome: 'Produção', definida: true },
-  { numero: 3, nome: 'Etapa 3', definida: false },
+  { numero: 3, nome: 'Custos', definida: true },
   { numero: 4, nome: 'Etapa 4', definida: false },
 ];
 export const fmtNumero = (n) => `#${String(n).padStart(4, '0')}`;
