@@ -103,6 +103,15 @@ export class MaquinaPedidoDto {
   horas?: number;
 }
 
+// Utilitário consumido no pedido (energia, água…): quantidade × valor do cadastro, gravado na hora
+export class UtilitarioPedidoDto {
+  @IsUUID('4', { message: 'Utilitário inválido' })
+  utilitario_id: string;
+
+  @IsOptional() @IsNumber({ maxDecimalPlaces: 3 }, { message: 'Quantidade do utilitário deve ser um número (até 3 casas)' }) @Min(0, { message: 'Quantidade do utilitário não pode ser negativa' })
+  quantidade?: number;
+}
+
 // Etapa 2 (Produção): quantidade a produzir da formulação atual, na unidade que a empresa usar,
 // e o maquinário. Sem a lista de máquinas, a que já está no pedido é mantida
 export class ProducaoDto {
@@ -115,6 +124,11 @@ export class ProducaoDto {
   @IsOptional() @IsArray({ message: 'Máquinas: lista' }) @ArrayMaxSize(30, { message: 'No máximo 30 máquinas' })
   @ValidateNested({ each: true }) @Type(() => MaquinaPedidoDto)
   maquinas?: MaquinaPedidoDto[];
+
+  // Sem a lista de utilitários, a que já está no pedido é mantida; lista vazia limpa
+  @IsOptional() @IsArray({ message: 'Utilitários: lista' }) @ArrayMaxSize(30, { message: 'No máximo 30 utilitários' })
+  @ValidateNested({ each: true }) @Type(() => UtilitarioPedidoDto)
+  utilitarios?: UtilitarioPedidoDto[];
 }
 
 // Etapa 3 (Custos): uma linha de custo. Com referência a um cadastro, o nome vem de lá e o

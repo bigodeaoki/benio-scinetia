@@ -7,7 +7,7 @@ import { FormulacoesService } from '../formulacoes/formulacoes.service';
 import { MateriasService } from '../materias/materias.service';
 import { novoId } from '../shared/ids';
 import { custoMateriaPrima, necessidade, producaoPrevista } from '../shared/necessidade';
-import { AmostraDto, CustoDto, CustosDto, MaquinaPedidoDto, PedidoDto, ProducaoDto, TrocaFormulacaoDto } from './pedidos.dto';
+import { AmostraDto, CustoDto, CustosDto, MaquinaPedidoDto, PedidoDto, ProducaoDto, TrocaFormulacaoDto, UtilitarioPedidoDto } from './pedidos.dto';
 
 const COLUNAS = `p.id, p.matriz_id, p.empresa_id, e.nome AS empresa_nome, p.numero, p.cliente_id, c.razao_social AS cliente_nome, c.nome_fantasia AS cliente_fantasia,
   p.formulacao_id, f.nome AS formulacao_nome, f.empresa_id AS formulacao_empresa_id,
@@ -95,16 +95,25 @@ export class PedidosService {
       const custoHora = m.custo_hora_pedido != null ? Number(m.custo_hora_pedido) : Number(m.custo_hora);
       return { ...m, custo_hora_pedido: custoHora, custo: Math.round((Number(m.horas) || 0) * custoHora * 100) / 100 };
     });
+    const [utilitariosBrutos]: any = await this.pool.query(
+      `SELECT pu.id, pu.utilitario_id, u.nome, u.descricao, u.valor AS valor_cadastro, u.ativo AS utilitario_ativo, pu.quantidade, pu.valor, pu.ordem
+         FROM pedido_utilitarios pu JOIN utilitarios u ON u.id = pu.utilitario_id WHERE pu.pedido_id = ? ORDER BY pu.ordem, u.nome`,
+      [id],
+    );
+    // Custo do utilitário = quantidade consumida × valor gravado no pedido
+    const utilitarios = utilitariosBrutos.map((u: any) => ({ ...u, custo: Math.round((Number(u.quantidade) || 0) * Number(u.valor) * 100) / 100 }));
     // O rendimento das máquinas não muda a matéria-prima: reduz o que sai (300 a 90 % produzem 270)
     const prevista = producao > 0 ? producaoPrevista(producao, maquinas.map((m: any) => Number(m.rendimento_pct))) : null;
     // Custo global da produção: matéria-prima + máquinas. É a base sobre a qual os demais custos se calculam
     const custoMaterias = Math.round(ingredientes.reduce((s: number, i: any) => s + (i.custo || 0), 0) * 100) / 100;
     const custoMaquinas = Math.round(maquinas.reduce((s: number, m: any) => s + m.custo, 0) * 100) / 100;
-    const custoGlobal = Math.round((custoMaterias + custoMaquinas) * 100) / 100;
+    const custoUtilitarios = Math.round(utilitarios.reduce((s: number, u: any) => s + u.custo, 0) * 100) / 100;
+    const custoGlobal = Math.round((custoMaterias + custoMaquinas + custoUtilitarios) * 100) / 100;
     const porUnidade = (base: number | null) => (base && base > 0 ? Math.round((custoGlobal / base) * 10000) / 10000 : null);
     const custos_producao = {
       materias_primas: custoMaterias, materias_sem_custo: ingredientes.filter((i: any) => producao > 0 && i.custo == null).length,
       maquinas: custoMaquinas, horas: Math.round(maquinas.reduce((s: number, m: any) => s + (Number(m.horas) || 0), 0) * 100) / 100,
+      utilitarios: custoUtilitarios,
       total: custoGlobal, custo_unitario_planejado: porUnidade(producao), custo_unitario_previsto: porUnidade(prevista ? prevista.quantidade : null),
     };
     const [custos]: any = await this.pool.query(
@@ -114,7 +123,7 @@ export class PedidosService {
     return {
       ...pedido, formulacoes, amostras, amostras_resumo: this.resumoAmostras(amostras), formulacao_ingredientes: ingredientes, maquinas,
       rendimento_combinado_pct: prevista ? prevista.rendimento_pct : null, producao_prevista: prevista ? prevista.quantidade : null,
-      custos, custos_resumo: this.resumoCustos(custos, producao, prevista ? prevista.quantidade : null), custos_producao,
+      custos, custos_resumo: this.resumoCustos(custos, producao, prevista ? prevista.quantidade : null), custos_producao, utilitarios,
     };
   }
 
@@ -224,6 +233,7 @@ export class PedidosService {
     const unidade = dto.unidade.trim();
     if (!unidade) throw new BadRequestException('Informe a unidade');
     const maquinas = dto.maquinas ? await this.validarMaquinas(atual, dto.maquinas) : null;
+    const utilitarios = dto.utilitarios ? await this.validarUtilitarios(atual, dto.utilitarios) : null;
     const cx = await this.pool.getConnection();
     try {
       await cx.beginTransaction();
@@ -233,6 +243,14 @@ export class PedidosService {
         if (maquinas.length) {
           await cx.query('INSERT INTO pedido_maquinas (id, pedido_id, maquina_id, rendimento_pct, horas, custo_hora, ordem, usuario_id) VALUES ?', [
             maquinas.map((m, i) => [novoId(), id, m.maquina_id, m.rendimento_pct, m.horas, m.custo_hora, i + 1, usuarioId]),
+          ]);
+        }
+      }
+      if (utilitarios) {
+        await cx.query('DELETE FROM pedido_utilitarios WHERE pedido_id = ?', [id]);
+        if (utilitarios.length) {
+          await cx.query('INSERT INTO pedido_utilitarios (id, pedido_id, utilitario_id, quantidade, valor, ordem, usuario_id) VALUES ?', [
+            utilitarios.map((u, i) => [novoId(), id, u.utilitario_id, u.quantidade, u.valor, i + 1, usuarioId]),
           ]);
         }
       }
@@ -248,9 +266,25 @@ export class PedidosService {
       detalhes: {
         numero: atual.numero, quantidade: dto.quantidade, unidade, formulacao_id: atual.formulacao_id,
         ...(maquinas ? { maquinas: maquinas.map((m) => ({ titulo: m.titulo, rendimento_pct: m.rendimento_pct, horas: m.horas })) } : {}),
+        ...(utilitarios ? { utilitarios: utilitarios.map((u) => ({ nome: u.nome, quantidade: u.quantidade, valor: u.valor })) } : {}),
       },
     });
     return this.detalhar(escopo, empresaId, id);
+  }
+
+  // Utilitários da empresa do pedido, ativos e sem repetir; o valor é o do cadastro, gravado na hora
+  private async validarUtilitarios(pedido: any, lista: UtilitarioPedidoDto[]) {
+    const ids = lista.map((u) => u.utilitario_id);
+    if (new Set(ids).size !== ids.length) throw new BadRequestException('Utilitário repetido na lista');
+    if (!ids.length) return [];
+    const [rows]: any = await this.pool.query('SELECT id, nome, valor, ativo FROM utilitarios WHERE id IN (?) AND empresa_id = ?', [ids, pedido.empresa_id]);
+    const porId = new Map<string, any>(rows.map((u: any) => [u.id, u]));
+    return lista.map((item) => {
+      const u = porId.get(item.utilitario_id);
+      if (!u) throw new BadRequestException('Utilitário não encontrado na empresa do pedido');
+      if (!u.ativo) throw new BadRequestException(`Utilitário "${u.nome}" está inativo`);
+      return { utilitario_id: u.id as string, nome: u.nome as string, quantidade: item.quantidade ?? null, valor: Number(u.valor) };
+    });
   }
 
   // Máquinas da empresa do pedido, ativas e sem repetir; sem rendimento informado, vale o do cadastro
