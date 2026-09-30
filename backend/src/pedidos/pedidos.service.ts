@@ -5,9 +5,10 @@ import { POOL, Pool } from '../db/database.module';
 import { EnvasesService } from '../envases/envases.service';
 import { FormulacoesService } from '../formulacoes/formulacoes.service';
 import { MateriasService } from '../materias/materias.service';
+import { custoTotalPedido } from '../shared/custos';
 import { novoId } from '../shared/ids';
 import { custoMateriaPrima, necessidade, producaoPrevista } from '../shared/necessidade';
-import { AmostraDto, CustoDto, CustosDto, MaquinaPedidoDto, PedidoDto, ProducaoDto, TrocaFormulacaoDto, UtilitarioPedidoDto } from './pedidos.dto';
+import { AmostraDto, CustoDto, CustosDto, ImpostoPedidoDto, MaoDeObraPedidoDto, MaquinaPedidoDto, PedidoDto, ProducaoDto, TrocaFormulacaoDto, UtilitarioPedidoDto } from './pedidos.dto';
 
 const COLUNAS = `p.id, p.matriz_id, p.empresa_id, e.nome AS empresa_nome, p.numero, p.cliente_id, c.razao_social AS cliente_nome, c.nome_fantasia AS cliente_fantasia,
   p.formulacao_id, f.nome AS formulacao_nome, f.empresa_id AS formulacao_empresa_id,
@@ -120,10 +121,36 @@ export class PedidosService {
       'SELECT id, tipo, referencia_id, descricao, quantidade, unidade, valor_unitario, total, ordem FROM pedido_custos WHERE pedido_id = ? ORDER BY ordem',
       [id],
     );
+    const custos_resumo = this.resumoCustos(custos, producao, prevista ? prevista.quantidade : null);
+    // Etapa 3: mão de obra por categoria e impostos, em % do custo global; outros custos são as linhas em R$
+    const [maoDeObraSalva]: any = await this.pool.query('SELECT categoria, percentual, ordem FROM pedido_mao_de_obra WHERE pedido_id = ? ORDER BY ordem', [id]);
+    const [categorias]: any = await this.pool.query(
+      `SELECT categoria, COUNT(*) AS funcionarios FROM funcionarios
+        WHERE empresa_id = ? AND ativo = 1 AND status <> 'desligado' GROUP BY categoria ORDER BY categoria`,
+      [pedido.empresa_id],
+    );
+    const [impostosSalvos]: any = await this.pool.query(
+      `SELECT pi.id, pi.imposto_id, t.nome, t.percentual AS percentual_cadastro, t.ativo AS imposto_ativo, pi.percentual, pi.ordem
+         FROM pedido_impostos pi JOIN impostos t ON t.id = pi.imposto_id WHERE pi.pedido_id = ? ORDER BY pi.ordem`,
+      [id],
+    );
+    const [impostosDisponiveis]: any = await this.pool.query(
+      `SELECT t.id, t.nome, t.percentual, IF(t.empresa_id = ?, 'propria', 'matriz') AS origem
+         FROM impostos t WHERE t.empresa_id IN (?) AND t.ativo = 1 ORDER BY t.nome`,
+      [pedido.empresa_id, this.empresasDoPedido(pedido)],
+    );
+    const totais = custoTotalPedido(custoGlobal, maoDeObraSalva.map((m: any) => Number(m.percentual)), impostosSalvos.map((t: any) => Number(t.percentual)), custos_resumo.total);
+    const porUnidadeTotal = (b: number | null) => (b && b > 0 ? Math.round((totais.total / b) * 10000) / 10000 : null);
+    const custo_pedido = {
+      base: custoGlobal, mao_de_obra: totais.mao_de_obra, mao_de_obra_pct: totais.mao_de_obra_pct, impostos: totais.impostos, impostos_pct: totais.impostos_pct,
+      outros: totais.outros, total: totais.total, custo_unitario_planejado: porUnidadeTotal(producao), custo_unitario_previsto: porUnidadeTotal(prevista ? prevista.quantidade : null),
+    };
     return {
       ...pedido, formulacoes, amostras, amostras_resumo: this.resumoAmostras(amostras), formulacao_ingredientes: ingredientes, maquinas,
       rendimento_combinado_pct: prevista ? prevista.rendimento_pct : null, producao_prevista: prevista ? prevista.quantidade : null,
-      custos, custos_resumo: this.resumoCustos(custos, producao, prevista ? prevista.quantidade : null), custos_producao, utilitarios,
+      custos, custos_resumo, custos_producao, utilitarios,
+      mao_de_obra: maoDeObraSalva.map((m: any, i: number) => ({ ...m, valor: totais.linhas_mao_de_obra[i] })), categorias_mao_de_obra: categorias,
+      impostos: impostosSalvos.map((t: any, i: number) => ({ ...t, valor: totais.linhas_impostos[i] })), impostos_disponiveis: impostosDisponiveis, custo_pedido,
     };
   }
 
@@ -302,19 +329,39 @@ export class PedidosService {
     });
   }
 
-  // Etapa 3 (Custos): linhas de custo do pedido, regravadas por inteiro. Nome e valor
-  // unitário ficam gravados na hora: mudar o cadastro depois não altera o pedido
+  // Etapa 3 (Custos): outros custos (linhas em R$, nome e valor gravados na hora), mão de obra
+  // por categoria e impostos, estes dois em % do custo global. Lista omitida fica como está
   async definirCustos(escopo: EscopoSessao, empresaId: string, usuarioId: string, id: string, dto: CustosDto) {
     const pedido = await this.exigirRascunho(escopo, empresaId, id);
-    const linhas = await this.validarCustos(escopo, pedido, dto.itens);
+    const linhas = dto.itens ? await this.validarCustos(escopo, pedido, dto.itens) : null;
+    const maoDeObra = dto.mao_de_obra ? await this.validarMaoDeObra(pedido, dto.mao_de_obra) : null;
+    const impostos = dto.impostos ? await this.validarImpostosPedido(pedido, dto.impostos) : null;
     const cx = await this.pool.getConnection();
     try {
       await cx.beginTransaction();
-      await cx.query('DELETE FROM pedido_custos WHERE pedido_id = ?', [id]);
-      if (linhas.length) {
-        await cx.query('INSERT INTO pedido_custos (id, pedido_id, tipo, referencia_id, descricao, quantidade, unidade, valor_unitario, total, ordem) VALUES ?', [
-          linhas.map((l, i) => [novoId(), id, l.tipo, l.referencia_id, l.descricao, l.quantidade, l.unidade, l.valor_unitario, l.total, i + 1]),
-        ]);
+      if (linhas) {
+        await cx.query('DELETE FROM pedido_custos WHERE pedido_id = ?', [id]);
+        if (linhas.length) {
+          await cx.query('INSERT INTO pedido_custos (id, pedido_id, tipo, referencia_id, descricao, quantidade, unidade, valor_unitario, total, ordem) VALUES ?', [
+            linhas.map((l, i) => [novoId(), id, l.tipo, l.referencia_id, l.descricao, l.quantidade, l.unidade, l.valor_unitario, l.total, i + 1]),
+          ]);
+        }
+      }
+      if (maoDeObra) {
+        await cx.query('DELETE FROM pedido_mao_de_obra WHERE pedido_id = ?', [id]);
+        if (maoDeObra.length) {
+          await cx.query('INSERT INTO pedido_mao_de_obra (id, pedido_id, categoria, percentual, ordem, usuario_id) VALUES ?', [
+            maoDeObra.map((m, i) => [novoId(), id, m.categoria, m.percentual, i + 1, usuarioId]),
+          ]);
+        }
+      }
+      if (impostos) {
+        await cx.query('DELETE FROM pedido_impostos WHERE pedido_id = ?', [id]);
+        if (impostos.length) {
+          await cx.query('INSERT INTO pedido_impostos (id, pedido_id, imposto_id, percentual, ordem, usuario_id) VALUES ?', [
+            impostos.map((t, i) => [novoId(), id, t.imposto_id, t.percentual, i + 1, usuarioId]),
+          ]);
+        }
       }
       await cx.commit();
     } catch (e) {
@@ -323,12 +370,59 @@ export class PedidosService {
     } finally {
       cx.release();
     }
-    const total = Math.round(linhas.reduce((s, l) => s + l.total, 0) * 100) / 100;
+    const detalhe = await this.detalhar(escopo, empresaId, id);
     await this.auditoria.registrar(null, {
       matriz_id: pedido.matriz_id, empresa_id: pedido.empresa_id, usuario_id: usuarioId, acao: 'pedido.custos_definidos', entidade: 'pedidos', entidade_id: id,
-      detalhes: { numero: pedido.numero, linhas: linhas.length, total },
+      detalhes: {
+        numero: pedido.numero, linhas: detalhe.custos.length, total: detalhe.custos_resumo.total,
+        ...(maoDeObra ? { mao_de_obra: maoDeObra } : {}), ...(impostos ? { impostos: impostos.map((t) => ({ nome: t.nome, percentual: t.percentual })) } : {}),
+        total_pedido: detalhe.custo_pedido.total,
+      },
     });
-    return this.detalhar(escopo, empresaId, id);
+    return detalhe;
+  }
+
+  // Categorias de mão de obra da empresa do pedido (as dos seus funcionários) ou já gravadas nele,
+  // sem repetir. Percentual zero não é gravado
+  private async validarMaoDeObra(pedido: any, lista: MaoDeObraPedidoDto[]) {
+    const vistas = new Set<string>();
+    for (const m of lista) {
+      const chave = m.categoria.trim().toLowerCase();
+      if (vistas.has(chave)) throw new BadRequestException(`Categoria repetida: ${m.categoria.trim()}`);
+      vistas.add(chave);
+    }
+    const [validas]: any = await this.pool.query(
+      'SELECT DISTINCT categoria FROM funcionarios WHERE empresa_id = ? UNION SELECT categoria FROM pedido_mao_de_obra WHERE pedido_id = ?',
+      [pedido.empresa_id, pedido.id],
+    );
+    const conhecidas = new Map<string, string>(validas.map((r: any) => [String(r.categoria).toLowerCase(), r.categoria]));
+    return lista.filter((m) => Number(m.percentual) > 0).map((m) => {
+      const nome = conhecidas.get(m.categoria.trim().toLowerCase());
+      if (!nome) throw new BadRequestException(`Categoria "${m.categoria.trim()}" não existe na mão de obra de ${pedido.empresa_nome}`);
+      return { categoria: nome, percentual: Number(m.percentual) };
+    });
+  }
+
+  // Impostos da empresa do pedido ou da matriz, ativos (ou já no pedido), sem repetir; sem percentual, vale o do cadastro
+  private async validarImpostosPedido(pedido: any, lista: ImpostoPedidoDto[]) {
+    const ids = lista.map((t) => t.imposto_id);
+    if (new Set(ids).size !== ids.length) throw new BadRequestException('Imposto repetido na lista');
+    if (!ids.length) return [];
+    const [rows]: any = await this.pool.query('SELECT id, nome, percentual, ativo FROM impostos WHERE id IN (?) AND empresa_id IN (?)', [ids, this.empresasDoPedido(pedido)]);
+    const [jaNoPedido]: any = await this.pool.query('SELECT imposto_id FROM pedido_impostos WHERE pedido_id = ?', [pedido.id]);
+    const noPedido = new Set<string>(jaNoPedido.map((r: any) => r.imposto_id));
+    const porId = new Map<string, any>(rows.map((t: any) => [t.id, t]));
+    return lista.map((item) => {
+      const t = porId.get(item.imposto_id);
+      if (!t) throw new BadRequestException('Imposto não encontrado para a empresa do pedido');
+      if (!t.ativo && !noPedido.has(t.id)) throw new BadRequestException(`Imposto "${t.nome}" está inativo`);
+      return { imposto_id: t.id as string, nome: t.nome as string, percentual: item.percentual ?? Number(t.percentual) };
+    });
+  }
+
+  // Empresas cujos cadastros de referência a empresa do pedido usa: ela e, se for filial, a matriz
+  private empresasDoPedido(pedido: any): string[] {
+    return pedido.empresa_id === pedido.matriz_id ? [pedido.empresa_id] : [pedido.empresa_id, pedido.matriz_id];
   }
 
   private async validarCustos(escopo: EscopoSessao, pedido: any, itens: CustoDto[]) {

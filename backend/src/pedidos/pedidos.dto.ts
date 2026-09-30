@@ -155,8 +155,38 @@ export class CustoDto {
   valor_unitario?: number;
 }
 
+// Mão de obra do pedido: percentual de uma categoria (das dos funcionários da empresa do pedido) sobre o custo global
+export class MaoDeObraPedidoDto {
+  @IsString() @Length(1, 60, { message: 'Categoria: entre 1 e 60 caracteres' })
+  categoria: string;
+
+  @IsNumber({ maxDecimalPlaces: 4 }, { message: 'Percentual da mão de obra deve ser um número (até 4 casas)' })
+  @Min(0, { message: 'Percentual da mão de obra: de 0 a 1000 %' }) @Max(1000, { message: 'Percentual da mão de obra: de 0 a 1000 %' })
+  percentual: number;
+}
+
+// Imposto do pedido: sem percentual informado, vale o do cadastro
+export class ImpostoPedidoDto {
+  @IsUUID('4', { message: 'Imposto inválido' })
+  imposto_id: string;
+
+  @IsOptional() @IsNumber({ maxDecimalPlaces: 4 }, { message: 'Percentual do imposto deve ser um número (até 4 casas)' })
+  @Min(0, { message: 'Percentual do imposto: de 0 a 100 %' }) @Max(100, { message: 'Percentual do imposto: de 0 a 100 %' })
+  percentual?: number;
+}
+
+// Etapa 3: outros custos (linhas em R$), mão de obra por categoria e impostos (% do custo global).
+// Lista omitida é mantida como está; lista vazia limpa
 export class CustosDto {
-  @IsArray({ message: 'Itens: lista' }) @ArrayMaxSize(200, { message: 'No máximo 200 linhas de custo' })
+  @IsOptional() @IsArray({ message: 'Itens: lista' }) @ArrayMaxSize(200, { message: 'No máximo 200 linhas de custo' })
   @ValidateNested({ each: true }) @Type(() => CustoDto)
-  itens: CustoDto[];
+  itens?: CustoDto[];
+
+  @IsOptional() @IsArray({ message: 'Mão de obra: lista' }) @ArrayMaxSize(50, { message: 'No máximo 50 categorias' })
+  @ValidateNested({ each: true }) @Type(() => MaoDeObraPedidoDto)
+  mao_de_obra?: MaoDeObraPedidoDto[];
+
+  @IsOptional() @IsArray({ message: 'Impostos: lista' }) @ArrayMaxSize(30, { message: 'No máximo 30 impostos' })
+  @ValidateNested({ each: true }) @Type(() => ImpostoPedidoDto)
+  impostos?: ImpostoPedidoDto[];
 }

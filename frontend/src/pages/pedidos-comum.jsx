@@ -138,3 +138,20 @@ export function custoMateriaPrima(necessario, unidade, valorCompra, unidadeCompr
   if (q == null) return { custo: null, aviso: `${unidade} não converte para ${unidadeCompra}` };
   return { custo: Math.round(q * Number(valorCompra) * 100) / 100, aviso: null };
 }
+
+// Custo total do pedido (etapa 3): o custo global da produção é a base; mão de obra e impostos
+// são % dessa base e os outros custos entram em R$. Mesma regra do backend
+export function custoTotalPedido(base, maoDeObraPct, impostosPct, outros) {
+  const centavos = (v) => Math.round(v * 100) / 100;
+  const valor = (pct) => centavos((Number(base) * (Number(pct) || 0)) / 100);
+  const linhasMaoDeObra = maoDeObraPct.map(valor);
+  const linhasImpostos = impostosPct.map(valor);
+  const soma = (xs) => centavos(xs.reduce((s, x) => s + x, 0));
+  const maoDeObra = soma(linhasMaoDeObra);
+  const impostos = soma(linhasImpostos);
+  return {
+    linhasMaoDeObra, linhasImpostos, maoDeObra, impostos,
+    maoDeObraPct: centavos(maoDeObraPct.reduce((s, x) => s + (Number(x) || 0), 0)), impostosPct: centavos(impostosPct.reduce((s, x) => s + (Number(x) || 0), 0)),
+    outros: centavos(Number(outros) || 0), total: centavos(Number(base) + maoDeObra + impostos + (Number(outros) || 0)),
+  };
+}

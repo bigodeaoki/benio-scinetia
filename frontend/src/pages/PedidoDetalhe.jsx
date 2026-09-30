@@ -4,7 +4,7 @@ import { ClipboardList } from 'lucide-react';
 import { SessaoContext } from '../App.jsx';
 import { api } from '../api.js';
 import { Badge, Campo, Carregando, Erro, Modal, Vazio, confirmar, fmtBRL, fmtData, fmtDataHora, fmtQtd, hoje, toast, useDados } from '../ui.jsx';
-import { BuscaFormulacao, ETAPAS, PODE_EDITAR_CUSTOS, PODE_EDITAR_PEDIDOS, STATUS, Stepper, custoMateriaPrima, fmtNumero, necessidade, producaoPrevista } from './pedidos-comum.jsx';
+import { BuscaFormulacao, ETAPAS, PODE_EDITAR_CUSTOS, PODE_EDITAR_PEDIDOS, STATUS, Stepper, custoMateriaPrima, custoTotalPedido, fmtNumero, necessidade, producaoPrevista } from './pedidos-comum.jsx';
 
 // Página do pedido, também para criar (/pedidos/novo): stepper com as etapas
 // no topo. Etapa 1: dados do pedido, histórico de formulações (a nova põe a
@@ -29,7 +29,7 @@ export default function PedidoDetalhe() {
   async function avancar() {
     const n = etapaVista + 1;
     if (n > ETAPAS.length) return;
-    if (antesDeAvancar.current && !(await antesDeAvancar.current())) return;
+    if (antesDeAvancar.current && !(await antesDeAvancar.current(true))) return;
     if (!podeEditar || n <= p.etapa) { setVista(n); return; }
     let clienteAprovou = false;
     if (etapaVista === 1) {
@@ -52,6 +52,14 @@ export default function PedidoDetalhe() {
     } catch (e) {
       toast.erro(e.message);
     }
+  }
+
+  // Sair da etapa aberta pelo stepper ou por "Etapa anterior" também salva o que foi alterado nela;
+  // se o salvamento falhar (ex.: campo obrigatório), fica na etapa e mostra o erro
+  async function irPara(n) {
+    if (n === etapaVista) return;
+    if (antesDeAvancar.current && !(await antesDeAvancar.current(n > etapaVista))) return;
+    setVista(n);
   }
 
   async function mudarStatus(status) {
@@ -81,7 +89,7 @@ export default function PedidoDetalhe() {
         {!novo && podeEditar && <button className="botao botao-perigo botao-mini" onClick={() => mudarStatus('cancelado')}>Cancelar pedido</button>}
         {!novo && papelEdita && p.status === 'cancelado' && <button className="botao botao-secundario botao-mini" onClick={() => mudarStatus('rascunho')}>Reabrir</button>}
       </div>
-      <Stepper atual={novo ? 1 : p.etapa} vista={etapaVista} aoEscolher={novo ? undefined : setVista} />
+      <Stepper atual={novo ? 1 : p.etapa} vista={etapaVista} aoEscolher={novo ? undefined : irPara} />
       <Erro msg={erro} />
       {novo && <div className="alerta alerta-info">Etapa 1: informe o cliente e, se já souber, a formulação inicial. Ao criar, o pedido ganha número e você segue nesta página, com o histórico de formulações e os envios de amostra.</div>}
       {!novo && !podeEditar && (
@@ -102,7 +110,7 @@ export default function PedidoDetalhe() {
       ) : <div className="vazio">Etapa {etapaVista} · {ETAPAS[etapaVista - 1]?.nome}: conteúdo em definição.</div>}
       {!novo && (
         <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 18 }}>
-          <button className="botao botao-secundario" disabled={etapaVista <= 1} onClick={() => setVista(etapaVista - 1)}>← Etapa anterior</button>
+          <button className="botao botao-secundario" disabled={etapaVista <= 1} onClick={() => irPara(etapaVista - 1)}>← Etapa anterior</button>
           <button className="botao" disabled={etapaVista >= ETAPAS.length} onClick={avancar} title={podeEditar ? 'Salva a etapa em que o pedido está' : undefined}>Próxima etapa →</button>
         </div>
       )}
@@ -440,7 +448,7 @@ function Etapa2({ p, podeEditar, recarregar, antesDeAvancar }) {
   function adicionarUtilitario() {
     const u = (cadastroUt || []).find((x) => x.id === escolhidoUt);
     if (!u) return;
-    setF((x) => ({ ...x, utilitarios: [...x.utilitarios, { utilitario_id: u.id, nome: u.nome, descricao: u.descricao, valor: u.valor, quantidade: '' }] }));
+    setF((x) => ({ ...x, utilitarios: [...x.utilitarios, { utilitario_id: u.id, nome: u.nome, descricao: u.descricao, valor: u.valor, quantidade: 1 }] }));
     setEscolhidoUt('');
   }
   const mudarMaquina = (i, campo, valor) => setF((x) => ({ ...x, maquinas: x.maquinas.map((m, j) => (j === i ? { ...m, [campo]: valor } : m)) }));
@@ -478,7 +486,7 @@ function Etapa2({ p, podeEditar, recarregar, antesDeAvancar }) {
 
   // "Próxima etapa" salva antes de sair, se algo mudou ou a quantidade ainda não foi salva
   React.useEffect(() => {
-    antesDeAvancar.current = podeEditar ? async () => (alterado || !(Number(p.quantidade_producao) > 0) ? salvar() : true) : null;
+    antesDeAvancar.current = podeEditar ? async (frente) => (alterado || (frente && !(Number(p.quantidade_producao) > 0)) ? salvar() : true) : null;
     return () => { antesDeAvancar.current = null; };
   });
 
@@ -632,90 +640,113 @@ function Etapa2({ p, podeEditar, recarregar, antesDeAvancar }) {
   );
 }
 
-// Tipos de custo: de onde vem o item, como nomear e o que preencher por padrão
+// Outros custos: o que ainda entra em linhas de R$ (produção vem da etapa 2; mão de obra e
+// impostos são % nesta etapa). Os tipos sem "adicionavel" aparecem só em lançamentos antigos
 const TIPOS_CUSTO = [
-  { valor: 'materia_prima', rotulo: 'Matérias-primas', rota: () => '/materias', nome: (x) => x.nome, unidade: (x) => x.unidade || 'un', valorPadrao: () => '' },
-  { valor: 'envase', rotulo: 'Envase', rota: () => '/envases', nome: (x) => x.nome, unidade: () => 'un', valorPadrao: () => '' },
-  { valor: 'maquina', rotulo: 'Máquinas', rota: (p) => `/maquinas?empresa=${p.empresa_id}`, nome: (x) => x.titulo, unidade: () => 'h', valorPadrao: (x) => x.custo_hora ?? '' },
-  { valor: 'mao_de_obra', rotulo: 'Mão de obra', rota: (p) => `/funcionarios?empresa=${p.empresa_id}`, nome: (x) => `${x.nome}${x.categoria ? ` · ${x.categoria}` : ''}`, unidade: () => 'h', valorPadrao: (x) => x.custo_hora ?? '' },
-  { valor: 'veiculo', rotulo: 'Logística', rota: (p) => `/veiculos?empresa=${p.empresa_id}`, nome: (x) => [x.tipo, x.marca, x.modelo, x.placa].filter(Boolean).join(' '), unidade: () => 'h', valorPadrao: (x) => x.custo_hora ?? '' },
-  { valor: 'outro', rotulo: 'Outros custos', rota: null },
+  { valor: 'envase', rotulo: 'Envase', adicionavel: true, rota: () => '/envases', nome: (x) => x.nome, unidade: () => 'un', valorPadrao: () => '' },
+  { valor: 'veiculo', rotulo: 'Logística', adicionavel: true, rota: (p) => `/veiculos?empresa=${p.empresa_id}`, nome: (x) => [x.tipo, x.marca, x.modelo, x.placa].filter(Boolean).join(' '), unidade: () => 'h', valorPadrao: (x) => x.custo_hora ?? '' },
+  { valor: 'outro', rotulo: 'Custos avulsos', adicionavel: true, rota: null },
+  { valor: 'materia_prima', rotulo: 'Matérias-primas (lançamento antigo)' },
+  { valor: 'maquina', rotulo: 'Máquinas (lançamento antigo)' },
+  { valor: 'mao_de_obra', rotulo: 'Mão de obra por pessoa (lançamento antigo)' },
 ];
-const tipoDe = (v) => TIPOS_CUSTO.find((t) => t.valor === v);
+const tipoDe = (v) => TIPOS_CUSTO.find((t) => t.valor === v) || { valor: v, rotulo: v };
 const linhaDe = (c, k) => ({ k, tipo: c.tipo, referencia_id: c.referencia_id || '', descricao: c.descricao, quantidade: c.quantidade, unidade: c.unidade, valor_unitario: c.valor_unitario });
 const assinaturaCustos = (ls) => JSON.stringify(ls.map((l) => [l.tipo, l.referencia_id || '', l.descricao, Number(l.quantidade) || 0, l.unidade, Number(l.valor_unitario) || 0]));
+const assinaturaMo = (ls) => JSON.stringify(ls.filter((m) => Number(m.percentual) > 0).map((m) => [m.categoria, Number(m.percentual)]).sort());
+const assinaturaIm = (ls) => JSON.stringify(ls.map((t) => [t.imposto_id, Number(t.percentual) || 0]));
 const totalLinha = (l) => Math.round((Number(l.quantidade) || 0) * (Number(l.valor_unitario) || 0) * 100) / 100;
 
-// Etapa 3, Custos: linhas de custo do pedido, puxadas dos cadastros ou avulsas, com o
-// total e o custo por unidade produzida. Nome e valor ficam gravados no pedido
+// Categorias da mão de obra: as dos funcionários ativos da empresa do pedido, mais as já gravadas nele
+function categoriasDoPedido(p) {
+  const salvas = new Map((p.mao_de_obra || []).map((m) => [m.categoria, m]));
+  const lista = (p.categorias_mao_de_obra || []).map((c) => ({ categoria: c.categoria, funcionarios: Number(c.funcionarios), percentual: salvas.get(c.categoria)?.percentual ?? '' }));
+  for (const m of p.mao_de_obra || []) if (!lista.some((c) => c.categoria === m.categoria)) lista.push({ categoria: m.categoria, funcionarios: 0, percentual: m.percentual });
+  return lista;
+}
+
+// Etapa 3, Custos: o custo global da produção (etapa 2) é a base. Mão de obra por categoria e
+// impostos entram em % dessa base; outros custos, em R$. No topo e no fim, o custo total do pedido
 function Etapa3({ p, podeEditar, recarregar, antesDeAvancar }) {
+  const cp = p.custos_producao || {};
+  const base = Number(cp.total) || 0;
+  const planejada = Number(p.quantidade_producao) || 0;
+  const prevista = Number(p.producao_prevista) || 0;
+  const [maoDeObra, setMaoDeObra] = React.useState(() => categoriasDoPedido(p));
+  const [impostos, setImpostos] = React.useState(() => (p.impostos || []).map((t) => ({ imposto_id: t.imposto_id, nome: t.nome, percentual_cadastro: t.percentual_cadastro, percentual: t.percentual })));
   const [linhas, setLinhas] = React.useState((p.custos || []).map((c, i) => linhaDe(c, i + 1)));
   const proximaChave = React.useRef((p.custos || []).length + 1);
   const [catalogos, setCatalogos] = React.useState({});
-  const [novo, setNovo] = React.useState({ tipo: 'materia_prima', referencia_id: '', descricao: '' });
+  const [novo, setNovo] = React.useState({ tipo: 'envase', referencia_id: '', descricao: '' });
+  const [impostoEscolhido, setImpostoEscolhido] = React.useState('');
   const [erro, setErro] = React.useState(null);
   const [salvando, setSalvando] = React.useState(false);
 
-  // Cadastros da empresa do pedido, cada um por conta própria: um 403 (ex.: mão de obra) não derruba os outros
+  // Cadastros para os outros custos, cada um por conta própria: um erro não derruba os outros
   React.useEffect(() => {
     let vivo = true;
-    Promise.all(TIPOS_CUSTO.filter((t) => t.rota).map((t) => api(t.rota(p)).then((l) => [t.valor, (l || []).filter((x) => x.ativo !== 0)]).catch(() => [t.valor, null])))
+    Promise.all(TIPOS_CUSTO.filter((t) => t.adicionavel && t.rota).map((t) => api(t.rota(p)).then((l) => [t.valor, (l || []).filter((x) => x.ativo !== 0)]).catch(() => [t.valor, null])))
       .then((pares) => { if (vivo) setCatalogos(Object.fromEntries(pares)); });
     return () => { vivo = false; };
   }, [p.id]);
 
-  function adicionar(tipoValor, item, extra = {}) {
+  function adicionarLinha(tipoValor, item, extra = {}) {
     const t = tipoDe(tipoValor);
     setLinhas((ls) => [...ls, {
       k: proximaChave.current++, tipo: tipoValor, referencia_id: item?.id || '', descricao: item ? t.nome(item) : extra.descricao || '',
-      quantidade: extra.quantidade ?? (tipoValor === 'outro' ? 1 : ''), unidade: extra.unidade ?? (item ? t.unidade(item) : 'un'), valor_unitario: extra.valor_unitario ?? (item ? t.valorPadrao(item) : ''),
+      quantidade: extra.quantidade ?? 1, unidade: extra.unidade ?? (item ? t.unidade(item) : 'un'), valor_unitario: extra.valor_unitario ?? (item ? t.valorPadrao(item) : ''),
     }]);
   }
-
   function adicionarNovo() {
     setErro(null);
     if (novo.tipo === 'outro') {
       if (!novo.descricao.trim()) return setErro('Descreva o custo avulso');
-      adicionar('outro', null, { descricao: novo.descricao.trim() });
+      adicionarLinha('outro', null, { descricao: novo.descricao.trim() });
       setNovo((n) => ({ ...n, descricao: '' }));
       return;
     }
     const item = (catalogos[novo.tipo] || []).find((x) => x.id === novo.referencia_id);
     if (!item) return setErro('Escolha o item do cadastro');
-    adicionar(novo.tipo, item);
+    adicionarLinha(novo.tipo, item);
     setNovo((n) => ({ ...n, referencia_id: '' }));
   }
-
-  // Puxa da etapa 2 o que ainda não está na lista: matérias-primas necessárias e máquinas do pedido
-  function trazerMateriasPrimas() {
-    for (const i of p.formulacao_ingredientes || []) {
-      if (linhas.some((l) => l.tipo === 'materia_prima' && l.referencia_id === i.materia_prima_id)) continue;
-      adicionar('materia_prima', { id: i.materia_prima_id, nome: i.materia_prima, unidade: i.necessario_unidade || i.unidade }, { quantidade: i.necessario ?? '', unidade: i.necessario_unidade || i.unidade });
-    }
-  }
-  function trazerMaquinas() {
-    for (const m of p.maquinas || []) {
-      if (linhas.some((l) => l.tipo === 'maquina' && l.referencia_id === m.maquina_id)) continue;
-      adicionar('maquina', { id: m.maquina_id, titulo: m.titulo, custo_hora: m.custo_hora }, { quantidade: '' });
-    }
+  function adicionarImposto() {
+    const t = (p.impostos_disponiveis || []).find((x) => x.id === impostoEscolhido);
+    if (!t) return;
+    // O percentual nasce do cadastro e pode ser ajustado só para este pedido
+    setImpostos((ls) => [...ls, { imposto_id: t.id, nome: t.nome, percentual_cadastro: t.percentual, percentual: t.percentual }]);
+    setImpostoEscolhido('');
   }
   const mudarLinha = (k, campo, valor) => setLinhas((ls) => ls.map((l) => (l.k === k ? { ...l, [campo]: valor } : l)));
   const removerLinha = (k) => setLinhas((ls) => ls.filter((l) => l.k !== k));
-  const alterado = assinaturaCustos(linhas) !== assinaturaCustos((p.custos || []).map((c, i) => linhaDe(c, i)));
-  const total = Math.round(linhas.reduce((s, l) => s + totalLinha(l), 0) * 100) / 100;
-  const planejada = Number(p.quantidade_producao) || 0;
-  const prevista = Number(p.producao_prevista) || 0;
+  const mudarMaoDeObra = (i, valor) => setMaoDeObra((ls) => ls.map((m, j) => (j === i ? { ...m, percentual: valor } : m)));
+  const mudarImposto = (i, valor) => setImpostos((ls) => ls.map((t, j) => (j === i ? { ...t, percentual: valor } : t)));
+  const removerImposto = (i) => setImpostos((ls) => ls.filter((_, j) => j !== i));
+
+  const alterado = assinaturaCustos(linhas) !== assinaturaCustos((p.custos || []).map((c, i) => linhaDe(c, i)))
+    || assinaturaMo(maoDeObra) !== assinaturaMo(p.mao_de_obra || []) || assinaturaIm(impostos) !== assinaturaIm(p.impostos || []);
+  const outros = Math.round(linhas.reduce((s, l) => s + totalLinha(l), 0) * 100) / 100;
+  const tot = custoTotalPedido(base, maoDeObra.map((m) => m.percentual), impostos.map((t) => t.percentual), outros);
+  const disponiveis = (p.impostos_disponiveis || []).filter((t) => !impostos.some((x) => x.imposto_id === t.id));
 
   async function salvar() {
     setErro(null);
+    const moRuim = maoDeObra.find((m) => m.percentual !== '' && !(Number(m.percentual) >= 0 && Number(m.percentual) <= 1000));
+    if (moRuim) { setErro(`Mão de obra ${moRuim.categoria}: de 0 a 1000 %`); return false; }
+    const imRuim = impostos.find((t) => !(Number(t.percentual) >= 0 && Number(t.percentual) <= 100));
+    if (imRuim) { setErro(`Imposto ${imRuim.nome}: de 0 a 100 %`); return false; }
     const invalida = linhas.find((l) => !(Number(l.quantidade) >= 0) || !(Number(l.valor_unitario) >= 0) || (l.tipo === 'outro' && !String(l.descricao).trim()));
-    if (invalida) { setErro('Confira quantidade, valor unitário e descrição das linhas'); return false; }
+    if (invalida) { setErro('Outros custos: confira quantidade, valor unitário e descrição das linhas'); return false; }
     setSalvando(true);
     try {
-      await api(`/pedidos/${p.id}/custos`, { method: 'PUT', body: { itens: linhas.map((l) => ({
-        tipo: l.tipo, referencia_id: l.referencia_id || undefined, descricao: l.tipo === 'outro' ? String(l.descricao).trim() : undefined,
-        quantidade: Number(l.quantidade) || 0, unidade: l.unidade || undefined, valor_unitario: Number(l.valor_unitario) || 0,
-      })) } });
+      await api(`/pedidos/${p.id}/custos`, { method: 'PUT', body: {
+        itens: linhas.map((l) => ({
+          tipo: l.tipo, referencia_id: l.referencia_id || undefined, descricao: l.tipo === 'outro' ? String(l.descricao).trim() : undefined,
+          quantidade: Number(l.quantidade) || 0, unidade: l.unidade || undefined, valor_unitario: Number(l.valor_unitario) || 0,
+        })),
+        mao_de_obra: maoDeObra.filter((m) => Number(m.percentual) > 0).map((m) => ({ categoria: m.categoria, percentual: Number(m.percentual) })),
+        impostos: impostos.map((t) => ({ imposto_id: t.imposto_id, percentual: Number(t.percentual) })),
+      } });
       recarregar();
       toast.sucesso('Custos salvos');
       return true;
@@ -727,7 +758,7 @@ function Etapa3({ p, podeEditar, recarregar, antesDeAvancar }) {
     }
   }
 
-  // "Próxima etapa" salva antes de sair, se algo mudou
+  // Sair da etapa (próxima, anterior ou stepper) salva antes, se algo mudou
   React.useEffect(() => {
     antesDeAvancar.current = podeEditar ? async () => (alterado ? salvar() : true) : null;
     return () => { antesDeAvancar.current = null; };
@@ -736,26 +767,92 @@ function Etapa3({ p, podeEditar, recarregar, antesDeAvancar }) {
   const grupos = TIPOS_CUSTO.map((t) => ({ t, itens: linhas.filter((l) => l.tipo === t.valor) })).filter((g) => g.itens.length);
   const itensDoTipo = catalogos[novo.tipo];
   const subtotal = (itens) => itens.reduce((s, l) => s + totalLinha(l), 0);
+  const ehFilial = p.empresa_id !== p.matriz_id;
 
   return (
     <>
-      <Titulo>Custos do pedido</Titulo>
-      <div className="alerta alerta-info">
-        Adicione as linhas de custo. Matérias-primas e máquinas podem vir da etapa 2; mão de obra, veículos e envase vêm dos cadastros, com o custo por hora já preenchido.
-        Nome e valor ficam gravados no pedido: mudar o cadastro depois não altera este custo.
+      {/* Logo abaixo do stepper: a base desta etapa e o total que ela forma */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 24, padding: '12px 18px', borderRadius: 12, background: '#eef9ef', border: '2px solid #2f9e44', marginBottom: 4 }}>
+        <div>
+          <div className="texto-suave negrito" style={{ textTransform: 'uppercase', fontSize: 11, letterSpacing: 0.4 }}>Custo global da produção (etapa 2)</div>
+          <div style={{ fontSize: 26, fontWeight: 700, lineHeight: 1.2 }}>{fmtBRL(base)}</div>
+          <div className="texto-suave" style={{ fontSize: 12.5 }}>matérias-primas {fmtBRL(cp.materias_primas || 0)} · máquinas {fmtBRL(cp.maquinas || 0)} · utilitários {fmtBRL(cp.utilitarios || 0)}</div>
+        </div>
+        <div className="texto-suave" style={{ fontSize: 13 }}>{planejada ? `${fmtBRL(base / planejada)} por unidade · ${fmtQtd(planejada)} ${p.unidade_producao}` : 'sem quantidade na etapa 2'}<br />base dos percentuais desta etapa</div>
+        <div style={{ marginLeft: 'auto', textAlign: 'right' }}>
+          <div className="texto-suave negrito" style={{ textTransform: 'uppercase', fontSize: 11, letterSpacing: 0.4 }}>Custo total do pedido</div>
+          <div style={{ fontSize: 22, fontWeight: 700, lineHeight: 1.2 }}>{fmtBRL(tot.total)}</div>
+          <div className="texto-suave" style={{ fontSize: 12.5 }}>{alterado ? 'com as alterações ainda não salvas' : 'base + mão de obra + impostos + outros'}</div>
+        </div>
       </div>
       {!podeEditar && <div className="alerta alerta-info">Só dono, administrativo e financeiro editam os custos.</div>}
       <Erro msg={erro} />
-      {podeEditar && (
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
-          <button type="button" className="botao botao-secundario botao-mini" disabled={!(p.formulacao_ingredientes || []).length} onClick={trazerMateriasPrimas}>Trazer matérias-primas da etapa 2</button>
-          <button type="button" className="botao botao-secundario botao-mini" disabled={!(p.maquinas || []).length} onClick={trazerMaquinas}>Trazer máquinas da etapa 2</button>
+
+      <Divisoria numero={1} titulo="Mão de obra por categoria" primeiro />
+      <div className="alerta alerta-info">Categorias da mão de obra de <strong>{p.empresa_nome}</strong>, a empresa que criou o pedido. Informe quanto cada uma representa, em % do custo global.</div>
+      {!maoDeObra.length ? <div className="alerta alerta-aviso">Nenhum funcionário ativo em {p.empresa_nome}: as categorias vêm do cadastro de Mão de obra.</div> : (
+        <div className="tabela-envolucro">
+          <table className="tabela">
+            <thead><tr><th>Categoria</th><th className="num">Funcionários</th><th className="num">% do custo global</th><th className="num">Valor</th></tr></thead>
+            <tbody>
+              {maoDeObra.map((m, i) => (
+                <tr key={m.categoria}>
+                  <td className="negrito">{m.categoria}</td>
+                  <td className="num">{m.funcionarios || <span className="texto-suave">nenhum ativo</span>}</td>
+                  <td className="num">{podeEditar
+                    ? <input type="number" step="0.01" min="0" max="1000" value={m.percentual} onChange={(e) => mudarMaoDeObra(i, e.target.value)} style={{ width: 110, textAlign: 'right' }} placeholder="0" />
+                    : `${fmtQtd(Number(m.percentual) || 0, 2)} %`}</td>
+                  <td className="num negrito">{fmtBRL(tot.linhasMaoDeObra[i])}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <Divisoria numero={2} titulo="Impostos" />
+      <div className="alerta alerta-info">Impostos de {p.empresa_nome}{ehFilial ? ' e da matriz' : ''}, do cadastro de Impostos. O percentual vem do cadastro, pode ser ajustado só para este pedido e incide sobre o custo global.</div>
+      {!impostos.length ? <Vazio msg="Nenhum imposto no pedido" /> : (
+        <div className="tabela-envolucro">
+          <table className="tabela">
+            <thead><tr><th>Imposto</th><th className="num">% do cadastro</th><th className="num">% neste pedido</th><th className="num">Valor</th>{podeEditar && <th className="acoes">Ações</th>}</tr></thead>
+            <tbody>
+              {impostos.map((t, i) => (
+                <tr key={t.imposto_id}>
+                  <td className="negrito">{t.nome}</td>
+                  <td className="num">{fmtQtd(t.percentual_cadastro, 4)} %</td>
+                  <td className="num">
+                    {podeEditar
+                      ? <input type="number" step="0.01" min="0" max="100" value={t.percentual} onChange={(e) => mudarImposto(i, e.target.value)} style={{ width: 100, textAlign: 'right' }} />
+                      : `${fmtQtd(t.percentual, 4)} %`}
+                    {Number(t.percentual) !== Number(t.percentual_cadastro) && <> <Badge cor="amarelo">ajustado</Badge></>}
+                  </td>
+                  <td className="num negrito">{fmtBRL(tot.linhasImpostos[i])}</td>
+                  {podeEditar && <td className="acoes"><button type="button" className="botao botao-perigo botao-mini" onClick={() => removerImposto(i)}>Remover</button></td>}
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
       {podeEditar && (
+        <div className="linha-campos" style={{ alignItems: 'flex-end', marginTop: 8 }}>
+          <Campo rotulo="Adicionar imposto" dica={disponiveis.length ? undefined : (p.impostos_disponiveis || []).length ? 'Todos os impostos já estão no pedido' : 'Nenhum imposto cadastrado: cadastre em Cadastros › Impostos'}>
+            <select value={impostoEscolhido} onChange={(e) => setImpostoEscolhido(e.target.value)} disabled={!disponiveis.length}>
+              <option value="">Escolha…</option>
+              {disponiveis.map((t) => <option key={t.id} value={t.id}>{t.nome} — {fmtQtd(t.percentual, 4)} %{t.origem === 'matriz' ? ' (da matriz)' : ''}</option>)}
+            </select>
+          </Campo>
+          <button type="button" className="botao botao-secundario" style={{ marginBottom: 10 }} disabled={!impostoEscolhido} onClick={adicionarImposto}>+ Adicionar</button>
+        </div>
+      )}
+
+      <Divisoria numero={3} titulo="Outros custos" />
+      <div className="alerta alerta-info">Envase, logística e custos avulsos, em R$. Nome e valor ficam gravados no pedido: mudar o cadastro depois não altera este custo.</div>
+      {podeEditar && (
         <div className="linha-campos" style={{ alignItems: 'flex-end' }}>
           <Campo rotulo="Tipo" largura={170}>
-            <select value={novo.tipo} onChange={(e) => setNovo({ tipo: e.target.value, referencia_id: '', descricao: '' })}>{TIPOS_CUSTO.map((t) => <option key={t.valor} value={t.valor}>{t.rotulo}</option>)}</select>
+            <select value={novo.tipo} onChange={(e) => setNovo({ tipo: e.target.value, referencia_id: '', descricao: '' })}>{TIPOS_CUSTO.filter((t) => t.adicionavel).map((t) => <option key={t.valor} value={t.valor}>{t.rotulo}</option>)}</select>
           </Campo>
           {novo.tipo === 'outro' ? (
             <Campo rotulo="Descrição"><input value={novo.descricao} onChange={(e) => setNovo((n) => ({ ...n, descricao: e.target.value }))} placeholder="ex.: frete, análise de laboratório" /></Campo>
@@ -770,7 +867,7 @@ function Etapa3({ p, podeEditar, recarregar, antesDeAvancar }) {
           <button type="button" className="botao botao-secundario" style={{ marginBottom: 10 }} onClick={adicionarNovo}>+ Adicionar</button>
         </div>
       )}
-      {!linhas.length ? <Vazio msg="Nenhum custo lançado" /> : (
+      {!linhas.length ? <Vazio msg="Nenhum outro custo lançado" /> : (
         <div className="tabela-envolucro">
           <table className="tabela">
             <thead><tr><th>Item</th><th className="num">Quantidade</th><th>Unidade</th><th className="num">Valor unitário (R$)</th><th className="num">Total</th>{podeEditar && <th className="acoes">Ações</th>}</tr></thead>
@@ -795,28 +892,20 @@ function Etapa3({ p, podeEditar, recarregar, antesDeAvancar }) {
         </div>
       )}
       {podeEditar && <button className="botao botao-secundario" style={{ marginTop: 8 }} disabled={salvando || !alterado} onClick={salvar}>{salvando ? 'Salvando…' : 'Salvar custos'}</button>}
+
       {/* Resumão da etapa, no fim de tudo */}
-      <div style={{ marginTop: 20, padding: '14px 16px 4px', borderRadius: 12, background: 'var(--azul-100)', border: '1px solid #b9d0f0' }}>
+      <div style={{ marginTop: 24, padding: '14px 16px 4px', borderRadius: 12, background: 'var(--azul-100)', border: '1px solid #b9d0f0' }}>
         <div className="texto-suave negrito" style={{ textTransform: 'uppercase', fontSize: 11, letterSpacing: 0.4, marginBottom: 10 }}>Resumo dos custos</div>
         <div className="grade-kpis">
-          <div className="kpi">
-            <div className="kpi-rotulo">Custo total</div>
-            <div className="kpi-valor">{fmtBRL(total)}</div>
-            <div className="kpi-extra">{linhas.length} linha(s){alterado ? ' · ainda não salvo' : ''}</div>
-          </div>
-          <div className="kpi">
-            <div className="kpi-rotulo">Por unidade planejada</div>
-            <div className="kpi-valor">{planejada ? fmtBRL(total / planejada) : '—'}</div>
-            <div className="kpi-extra">{planejada ? `${fmtQtd(planejada)} ${p.unidade_producao}` : 'sem quantidade na etapa 2'}</div>
-          </div>
+          <div className="kpi"><div className="kpi-rotulo">Custo global (base)</div><div className="kpi-valor">{fmtBRL(base)}</div><div className="kpi-extra">matéria-prima + máquinas + utilitários</div></div>
+          <div className="kpi"><div className="kpi-rotulo">Mão de obra</div><div className="kpi-valor">{fmtBRL(tot.maoDeObra)}</div><div className="kpi-extra">{fmtQtd(tot.maoDeObraPct, 2)} % do custo global</div></div>
+          <div className="kpi"><div className="kpi-rotulo">Impostos</div><div className="kpi-valor">{fmtBRL(tot.impostos)}</div><div className="kpi-extra">{fmtQtd(tot.impostosPct, 4)} % do custo global</div></div>
+          <div className="kpi"><div className="kpi-rotulo">Outros custos</div><div className="kpi-valor">{fmtBRL(outros)}</div><div className="kpi-extra">{linhas.length} linha(s)</div></div>
+          <div className="kpi" style={{ background: '#fff', border: '2px solid #2f9e44' }}><div className="kpi-rotulo">Custo total do pedido</div><div className="kpi-valor">{fmtBRL(tot.total)}</div><div className="kpi-extra">{alterado ? 'ainda não salvo' : 'base + mão de obra + impostos + outros'}</div></div>
           <div className="kpi" style={prevista && prevista < planejada ? { background: '#fdf2d9', border: '1px solid #e9c46a' } : undefined}>
-            <div className="kpi-rotulo">Por unidade prevista</div>
-            <div className="kpi-valor">{prevista ? fmtBRL(total / prevista) : '—'}</div>
-            <div className="kpi-extra">{prevista ? `${fmtQtd(prevista)} ${p.unidade_producao} depois do rendimento` : 'sem produção prevista'}</div>
-          </div>
-          <div className="kpi">
-            <div className="kpi-rotulo">Composição</div>
-            <div className="kpi-valor" style={{ fontSize: 13, lineHeight: 1.5 }}>{grupos.length ? grupos.map(({ t, itens }) => `${t.rotulo}: ${fmtBRL(subtotal(itens))}`).join(' · ') : '—'}</div>
+            <div className="kpi-rotulo">Por unidade</div>
+            <div className="kpi-valor">{planejada ? fmtBRL(tot.total / planejada) : '—'}</div>
+            <div className="kpi-extra">{prevista && prevista < planejada ? `${fmtBRL(tot.total / prevista)} por unidade prevista (${fmtQtd(prevista)} ${p.unidade_producao})` : planejada ? `${fmtQtd(planejada)} ${p.unidade_producao} planejadas` : 'sem quantidade na etapa 2'}</div>
           </div>
         </div>
       </div>

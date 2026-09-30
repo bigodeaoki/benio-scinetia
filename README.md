@@ -46,10 +46,11 @@ backend/src
   maquinas/    maquinário de cada empresa (título, modelo, custo R$/h, rendimento %); bem físico, não é compartilhado com filiais; a dona lista o grupo inteiro, com filtro por empresa
   veiculos/    logística: veículos de cada empresa (tipo livre, marca, modelo, ano, placa, custo R$/h, status, última manutenção); bem físico como o maquinário; a dona lista o grupo inteiro, com filtro por empresa
   utilitarios/ utilitários de cada empresa (energia, água, gás…) com nome, descrição e valor em R$; mesmo escopo do maquinário
+  impostos/    impostos (nome e %) de cada empresa, com a filial enxergando os da matriz; usados na etapa de custos do pedido
   funcionarios/ mão de obra de cada empresa (nome, documento, e-mail, categoria livre, custo R$/h, admissão, status de RH); só dono, administrativo e financeiro leem e escrevem; a dona lista o grupo inteiro, com filtro por empresa
   documentos/  documentos do grupo (arquivo no banco, até 10 MB); status de download da matriz e das filiais, marcados no primeiro download de cada lado
   clientes/    clientes de cada empresa (dados, endereço, contatos, responsáveis, CNPJ validado); o grupo inteiro lê, a empresa dona altera
-  pedidos/     entrada de pedidos em 4 etapas, salva no meio (status + etapa). Etapa 1: histórico de formulações do pedido (a nova põe a anterior em desuso) e envios de amostra (quantidade, embalagens, logística; gasto informativo, fora do custo), com a confirmação "cliente aprovou?" ao avançar. Etapa 2 (Produção): quantidade a produzir, matérias-primas necessárias (fórmula por 1 unidade × quantidade, com g→kg e mL→L) e maquinário com rendimento ajustável no pedido. Etapa 3 (Custos): linhas de custo puxadas dos cadastros (matéria-prima, envase, máquina, mão de obra, veículo) ou avulsas, com total e custo por unidade; só dono, administrativo e financeiro editam
+  pedidos/     entrada de pedidos em 4 etapas, salva no meio (status + etapa). Etapa 1: histórico de formulações do pedido (a nova põe a anterior em desuso) e envios de amostra (quantidade, embalagens, logística; gasto informativo, fora do custo), com a confirmação "cliente aprovou?" ao avançar. Etapa 2 (Produção): quantidade a produzir, matérias-primas necessárias (fórmula por 1 unidade × quantidade, com g→kg e mL→L) e maquinário com rendimento ajustável no pedido. Etapa 3 (Custos): sobre o custo global da etapa 2, mão de obra por categoria e impostos em %, e outros custos em R$ (envase, logística, avulsos), com o custo total do pedido e por unidade; só dono, administrativo e financeiro editam
   estoque/     entradas de compra por empresa, de matéria-prima ou de item de envase (um dos dois), com resumo por item e unidade
   painel/      resumo da tela inicial por visão
   auditoria/   trilha de auditoria (global)
@@ -58,7 +59,7 @@ backend/src
 frontend/src
   App.jsx      rota pública (entrar) e a área logada
   Shell.jsx    menu por visão, seletor de empresa, cabeçalho
-  pages/       Dashboard, Pedidos, Clientes, Matérias-primas, Envase, Formulações, Maquinário, Logística, Utilitários, Mão de obra, Estoque, Documentos, Filiais, Usuários, admin/Empresas, admin/Usuários, Login
+  pages/       Dashboard, Pedidos, Clientes, Matérias-primas, Envase, Formulações, Maquinário, Logística, Utilitários, Impostos, Mão de obra, Estoque, Documentos, Filiais, Usuários, admin/Empresas, admin/Usuários, Login
 backend/migrations  migrações do schema em ordem de nome (0001-baseline.sql é a base); a API aplica na subida
 ```
 
