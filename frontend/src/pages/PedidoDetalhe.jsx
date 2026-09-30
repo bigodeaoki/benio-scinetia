@@ -454,19 +454,7 @@ function Etapa2({ p, podeEditar, recarregar, antesDeAvancar }) {
           <input list="unidades-producao" value={f.unidade} onChange={(e) => mudar('unidade', e.target.value)} readOnly={!podeEditar} />
           <datalist id="unidades-producao">{UNIDADES_PRODUCAO.map((u) => <option key={u} value={u} />)}</datalist>
         </Campo>
-        {producao > 0 && f.maquinas.length > 0 && (
-          <Campo rotulo="Produção prevista" largura={260}
-            dica={`rendimento ${f.maquinas.length > 1 ? `combinado (${f.maquinas.map((m) => `${fmtQtd(m.rendimento_pct, 2)} %`).join(' × ')}) de` : 'de'} ${fmtQtd(prevista.rendimento_pct, 2)} %`}>
-            <input value={`${fmtQtd(prevista.quantidade)} ${f.unidade}`} readOnly className="negrito" style={prevista.rendimento_pct < 100 ? { background: '#fdf2d9', borderColor: '#e9c46a' } : undefined} />
-          </Campo>
-        )}
       </div>
-      {producao > 0 && f.maquinas.length > 0 && prevista.rendimento_pct < 100 && (
-        <div className="alerta alerta-aviso">
-          Com o rendimento de <strong>{fmtQtd(prevista.rendimento_pct, 2)} %</strong>, dos {fmtQtd(producao)} {f.unidade} planejados serão produzidos <strong>{fmtQtd(prevista.quantidade)} {f.unidade}</strong>.
-          A matéria-prima necessária continua a do planejado.
-        </div>
-      )}
 
       <Titulo>Matérias-primas necessárias</Titulo>
       {!ingredientes.length ? (
@@ -531,6 +519,32 @@ function Etapa2({ p, podeEditar, recarregar, antesDeAvancar }) {
         </div>
       )}
       {podeEditar && <button className="botao botao-secundario" style={{ marginTop: 6 }} disabled={salvando || !alterado} onClick={salvar}>{salvando ? 'Salvando…' : 'Salvar produção'}</button>}
+      {/* Resumão da etapa, no fim de tudo: o que vai ser produzido depois do rendimento das máquinas */}
+      <div style={{ marginTop: 20, padding: '14px 16px 4px', borderRadius: 12, background: 'var(--azul-100)', border: '1px solid #b9d0f0' }}>
+        <div className="texto-suave negrito" style={{ textTransform: 'uppercase', fontSize: 11, letterSpacing: 0.4, marginBottom: 10 }}>Resumo da produção</div>
+        <div className="grade-kpis">
+          <div className="kpi">
+            <div className="kpi-rotulo">Formulação</div>
+            <div className="kpi-valor" style={{ fontSize: 17 }}>{ativa?.nome || '—'}</div>
+            <div className="kpi-extra">{ingredientes.length ? `${ingredientes.length} matéria(s)-prima(s)` : 'sem ingredientes cadastrados'}</div>
+          </div>
+          <div className="kpi">
+            <div className="kpi-rotulo">Quantidade planejada</div>
+            <div className="kpi-valor">{producao ? `${fmtQtd(producao)} ${f.unidade}` : '—'}</div>
+            <div className="kpi-extra">base da matéria-prima necessária</div>
+          </div>
+          <div className="kpi">
+            <div className="kpi-rotulo">Rendimento das máquinas</div>
+            <div className="kpi-valor">{f.maquinas.length ? `${fmtQtd(prevista.rendimento_pct, 2)} %` : '—'}</div>
+            <div className="kpi-extra">{f.maquinas.length > 1 ? f.maquinas.map((m) => `${fmtQtd(m.rendimento_pct, 2)} %`).join(' × ') : f.maquinas.length === 1 ? f.maquinas[0].titulo : 'nenhuma máquina no pedido'}</div>
+          </div>
+          <div className="kpi" style={producao && prevista.rendimento_pct < 100 ? { background: '#fdf2d9', border: '1px solid #e9c46a' } : undefined}>
+            <div className="kpi-rotulo">Produção prevista</div>
+            <div className="kpi-valor">{producao ? `${fmtQtd(prevista.quantidade)} ${f.unidade}` : '—'}</div>
+            <div className="kpi-extra">{producao && prevista.rendimento_pct < 100 ? `${fmtQtd(producao - prevista.quantidade)} ${f.unidade} a menos pelo rendimento` : 'sem perda pelo rendimento'}</div>
+          </div>
+        </div>
+      </div>
     </>
   );
 }
