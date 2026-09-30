@@ -1,5 +1,5 @@
 import React from 'react';
-import { Box, Boxes, Building2, ClipboardList, Cog, Contact, FileText, FlaskConical, HardHat, LayoutDashboard, LogOut, Network, Package, Truck, Users } from 'lucide-react';
+import { Box, Boxes, Building2, ClipboardList, Cog, Contact, FileText, FlaskConical, HardHat, LayoutDashboard, LogOut, Network, Package, Truck, Users, Zap } from 'lucide-react';
 import { NavLink, Route, Routes, useLocation } from 'react-router-dom';
 import { SessaoContext } from './App.jsx';
 import { limparSessao } from './api.js';
@@ -16,6 +16,7 @@ import Funcionarios, { PODE_VER_FUNCIONARIOS } from './pages/Funcionarios.jsx';
 import Documentos from './pages/Documentos.jsx';
 import Clientes from './pages/Clientes.jsx';
 import Pedidos from './pages/Pedidos.jsx';
+import Utilitarios from './pages/Utilitarios.jsx';
 import PedidoDetalhe from './pages/PedidoDetalhe.jsx';
 import Filiais from './pages/Filiais.jsx';
 import Usuarios from './pages/Usuarios.jsx';
@@ -44,6 +45,7 @@ function menuDe(papel) {
     { caminho: '/formulacoes', titulo: 'Formulações', Icone: FlaskConical },
     { caminho: '/maquinas', titulo: 'Maquinário', Icone: Cog },
     { caminho: '/logistica', titulo: 'Logística', Icone: Truck },
+    { caminho: '/utilitarios', titulo: 'Utilitários', Icone: Zap },
     ...(PODE_VER_FUNCIONARIOS.includes(papel) ? [{ caminho: '/funcionarios', titulo: 'Mão de obra', Icone: HardHat }] : []),
     { grupo: 'Operação' },
     { caminho: '/estoque', titulo: 'Estoque', Icone: Boxes },
@@ -139,6 +141,7 @@ export default function Shell() {
             {!ehAdmin && <Route path="envases" element={<Envases />} />}
             {!ehAdmin && <Route path="maquinas" element={<Maquinas />} />}
             {!ehAdmin && <Route path="logistica" element={<Logistica />} />}
+            {!ehAdmin && <Route path="utilitarios" element={<Utilitarios />} />}
             {!ehAdmin && <Route path="documentos" element={<Documentos />} />}
             {!ehAdmin && <Route path="clientes" element={<Clientes />} />}
             {!ehAdmin && <Route path="pedidos" element={<Pedidos />} />}

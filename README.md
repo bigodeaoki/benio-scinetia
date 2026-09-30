@@ -45,6 +45,7 @@ backend/src
   envases/     itens de envase (frascos, tampas, rótulos, caixas) da empresa ativa; sem quantidade, o estoque controla; mesma visibilidade das matérias-primas; na tela de cadastro a dona vê o grupo inteiro, com filtro por empresa
   maquinas/    maquinário de cada empresa (título, modelo, custo R$/h, rendimento %); bem físico, não é compartilhado com filiais; a dona lista o grupo inteiro, com filtro por empresa
   veiculos/    logística: veículos de cada empresa (tipo livre, marca, modelo, ano, placa, custo R$/h, status, última manutenção); bem físico como o maquinário; a dona lista o grupo inteiro, com filtro por empresa
+  utilitarios/ utilitários de cada empresa (energia, água, gás…) com nome, descrição e valor em R$; mesmo escopo do maquinário
   funcionarios/ mão de obra de cada empresa (nome, documento, e-mail, categoria livre, custo R$/h, admissão, status de RH); só dono, administrativo e financeiro leem e escrevem; a dona lista o grupo inteiro, com filtro por empresa
   documentos/  documentos do grupo (arquivo no banco, até 10 MB); status de download da matriz e das filiais, marcados no primeiro download de cada lado
   clientes/    clientes de cada empresa (dados, endereço, contatos, responsáveis, CNPJ validado); o grupo inteiro lê, a empresa dona altera
@@ -57,7 +58,7 @@ backend/src
 frontend/src
   App.jsx      rota pública (entrar) e a área logada
   Shell.jsx    menu por visão, seletor de empresa, cabeçalho
-  pages/       Dashboard, Pedidos, Clientes, Matérias-primas, Envase, Formulações, Maquinário, Logística, Mão de obra, Estoque, Documentos, Filiais, Usuários, admin/Empresas, admin/Usuários, Login
+  pages/       Dashboard, Pedidos, Clientes, Matérias-primas, Envase, Formulações, Maquinário, Logística, Utilitários, Mão de obra, Estoque, Documentos, Filiais, Usuários, admin/Empresas, admin/Usuários, Login
 backend/migrations  migrações do schema em ordem de nome (0001-baseline.sql é a base); a API aplica na subida
 ```
 

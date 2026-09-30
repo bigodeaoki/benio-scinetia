@@ -22,4 +22,5 @@ export const PERM = {
   clientes: ['owner', 'vendas', 'administrativo', 'financeiro'],      // clientes de cada empresa; o grupo inteiro lê
   pedidos: ['owner', 'vendas', 'administrativo'],                      // entrada de pedidos (em etapas); o grupo inteiro lê
   custos: ['owner', 'administrativo', 'financeiro'],                 // etapa Custos do pedido: envolve custo-hora de funcionários
+  utilitarios: ['owner', 'administrativo', 'financeiro'],            // utilitários (energia, água…) com valor em R$
 };
