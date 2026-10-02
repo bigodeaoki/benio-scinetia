@@ -25,3 +25,12 @@ describe('custo total do pedido', () => {
     expect(custoTotalPedido(0, [10], [18], 0).total).toBe(0);
   });
 });
+
+describe('subtotal sem impostos', () => {
+  it('é base + mão de obra + custos em R$; o total soma os impostos por cima', () => {
+    const t = custoTotalPedido(1000, [10], [18], 320 + 150 + 70);
+    expect(t.subtotal).toBe(1640);
+    expect(t.impostos).toBe(180);
+    expect(t.total).toBe(1820);
+  });
+});

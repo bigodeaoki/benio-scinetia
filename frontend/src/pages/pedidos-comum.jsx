@@ -11,7 +11,7 @@ export const ETAPAS = [
   { numero: 1, nome: 'Formulação e amostras', definida: true },
   { numero: 2, nome: 'Produção', definida: true },
   { numero: 3, nome: 'Custos', definida: true },
-  { numero: 4, nome: 'Etapa 4', definida: false },
+  { numero: 4, nome: 'Impostos', definida: true },
 ];
 export const fmtNumero = (n) => `#${String(n).padStart(4, '0')}`;
 
@@ -152,6 +152,7 @@ export function custoTotalPedido(base, maoDeObraPct, impostosPct, outros) {
   return {
     linhasMaoDeObra, linhasImpostos, maoDeObra, impostos,
     maoDeObraPct: centavos(maoDeObraPct.reduce((s, x) => s + (Number(x) || 0), 0)), impostosPct: centavos(impostosPct.reduce((s, x) => s + (Number(x) || 0), 0)),
-    outros: centavos(Number(outros) || 0), total: centavos(Number(base) + maoDeObra + impostos + (Number(outros) || 0)),
+    outros: centavos(Number(outros) || 0), subtotal: centavos(Number(base) + maoDeObra + (Number(outros) || 0)),
+    total: centavos(Number(base) + maoDeObra + impostos + (Number(outros) || 0)),
   };
 }

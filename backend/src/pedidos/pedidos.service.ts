@@ -8,7 +8,7 @@ import { MateriasService } from '../materias/materias.service';
 import { custoTotalPedido } from '../shared/custos';
 import { novoId } from '../shared/ids';
 import { custoMateriaPrima, necessidade, producaoPrevista } from '../shared/necessidade';
-import { AmostraDto, CustoDto, CustosDto, ImpostoPedidoDto, MaoDeObraPedidoDto, MaquinaPedidoDto, PedidoDto, ProducaoDto, TrocaFormulacaoDto, UtilitarioPedidoDto } from './pedidos.dto';
+import { AmostraDto, CustoDto, CustosDto, DepreciacaoPedidoDto, ImpostoPedidoDto, LogisticaPedidoDto, MaoDeObraPedidoDto, MaquinaPedidoDto, PedidoDto, ProducaoDto, TrocaFormulacaoDto, UtilitarioPedidoDto } from './pedidos.dto';
 
 const COLUNAS = `p.id, p.matriz_id, p.empresa_id, e.nome AS empresa_nome, p.numero, p.cliente_id, c.razao_social AS cliente_nome, c.nome_fantasia AS cliente_fantasia,
   p.formulacao_id, f.nome AS formulacao_nome, f.empresa_id AS formulacao_empresa_id,
@@ -139,18 +139,33 @@ export class PedidosService {
          FROM impostos t WHERE t.empresa_id IN (?) AND t.ativo = 1 ORDER BY t.nome`,
       [pedido.empresa_id, this.empresasDoPedido(pedido)],
     );
-    const totais = custoTotalPedido(custoGlobal, maoDeObraSalva.map((m: any) => Number(m.percentual)), impostosSalvos.map((t: any) => Number(t.percentual)), custos_resumo.total);
+    // Logística (horas × custo-hora gravado) e depreciação (R$) somam direto ao custo, como os outros custos
+    const [logisticaBruta]: any = await this.pool.query(
+      `SELECT pv.id, pv.veiculo_id, TRIM(CONCAT_WS(' ', v.tipo, v.marca, v.modelo, v.placa)) AS nome, v.custo_hora AS custo_hora_cadastro,
+              v.ativo AS veiculo_ativo, pv.horas, pv.custo_hora, pv.ordem
+         FROM pedido_veiculos pv JOIN veiculos v ON v.id = pv.veiculo_id WHERE pv.pedido_id = ? ORDER BY pv.ordem`,
+      [id],
+    );
+    const logistica = logisticaBruta.map((v: any) => ({ ...v, custo: Math.round((Number(v.horas) || 0) * Number(v.custo_hora) * 100) / 100 }));
+    const [depreciacoes]: any = await this.pool.query('SELECT id, nome, valor, ordem FROM pedido_depreciacoes WHERE pedido_id = ? ORDER BY ordem', [id]);
+    const custoLogistica = Math.round(logistica.reduce((s: number, v: any) => s + v.custo, 0) * 100) / 100;
+    const custoDepreciacao = Math.round(depreciacoes.reduce((s: number, d: any) => s + Number(d.valor), 0) * 100) / 100;
+    const totais = custoTotalPedido(
+      custoGlobal, maoDeObraSalva.map((m: any) => Number(m.percentual)), impostosSalvos.map((t: any) => Number(t.percentual)),
+      custos_resumo.total + custoLogistica + custoDepreciacao,
+    );
     const porUnidadeTotal = (b: number | null) => (b && b > 0 ? Math.round((totais.total / b) * 10000) / 10000 : null);
     const custo_pedido = {
-      base: custoGlobal, mao_de_obra: totais.mao_de_obra, mao_de_obra_pct: totais.mao_de_obra_pct, impostos: totais.impostos, impostos_pct: totais.impostos_pct,
-      outros: totais.outros, total: totais.total, custo_unitario_planejado: porUnidadeTotal(producao), custo_unitario_previsto: porUnidadeTotal(prevista ? prevista.quantidade : null),
+      base: custoGlobal, mao_de_obra: totais.mao_de_obra, mao_de_obra_pct: totais.mao_de_obra_pct, logistica: custoLogistica, depreciacao: custoDepreciacao,
+      outros: custos_resumo.total, subtotal: totais.subtotal, impostos: totais.impostos, impostos_pct: totais.impostos_pct, total: totais.total,
+      custo_unitario_planejado: porUnidadeTotal(producao), custo_unitario_previsto: porUnidadeTotal(prevista ? prevista.quantidade : null),
     };
     return {
       ...pedido, formulacoes, amostras, amostras_resumo: this.resumoAmostras(amostras), formulacao_ingredientes: ingredientes, maquinas,
       rendimento_combinado_pct: prevista ? prevista.rendimento_pct : null, producao_prevista: prevista ? prevista.quantidade : null,
       custos, custos_resumo, custos_producao, utilitarios,
       mao_de_obra: maoDeObraSalva.map((m: any, i: number) => ({ ...m, valor: totais.linhas_mao_de_obra[i] })), categorias_mao_de_obra: categorias,
-      impostos: impostosSalvos.map((t: any, i: number) => ({ ...t, valor: totais.linhas_impostos[i] })), impostos_disponiveis: impostosDisponiveis, custo_pedido,
+      impostos: impostosSalvos.map((t: any, i: number) => ({ ...t, valor: totais.linhas_impostos[i] })), impostos_disponiveis: impostosDisponiveis, logistica, depreciacoes, custo_pedido,
     };
   }
 
@@ -336,6 +351,8 @@ export class PedidosService {
     const linhas = dto.itens ? await this.validarCustos(escopo, pedido, dto.itens) : null;
     const maoDeObra = dto.mao_de_obra ? await this.validarMaoDeObra(pedido, dto.mao_de_obra) : null;
     const impostos = dto.impostos ? await this.validarImpostosPedido(pedido, dto.impostos) : null;
+    const logistica = dto.logistica ? await this.validarLogistica(pedido, dto.logistica) : null;
+    const depreciacoes = dto.depreciacoes ? this.validarDepreciacoes(dto.depreciacoes) : null;
     const cx = await this.pool.getConnection();
     try {
       await cx.beginTransaction();
@@ -363,6 +380,22 @@ export class PedidosService {
           ]);
         }
       }
+      if (logistica) {
+        await cx.query('DELETE FROM pedido_veiculos WHERE pedido_id = ?', [id]);
+        if (logistica.length) {
+          await cx.query('INSERT INTO pedido_veiculos (id, pedido_id, veiculo_id, horas, custo_hora, ordem, usuario_id) VALUES ?', [
+            logistica.map((v, i) => [novoId(), id, v.veiculo_id, v.horas, v.custo_hora, i + 1, usuarioId]),
+          ]);
+        }
+      }
+      if (depreciacoes) {
+        await cx.query('DELETE FROM pedido_depreciacoes WHERE pedido_id = ?', [id]);
+        if (depreciacoes.length) {
+          await cx.query('INSERT INTO pedido_depreciacoes (id, pedido_id, nome, valor, ordem, usuario_id) VALUES ?', [
+            depreciacoes.map((d, i) => [novoId(), id, d.nome, d.valor, i + 1, usuarioId]),
+          ]);
+        }
+      }
       await cx.commit();
     } catch (e) {
       await cx.rollback();
@@ -376,6 +409,7 @@ export class PedidosService {
       detalhes: {
         numero: pedido.numero, linhas: detalhe.custos.length, total: detalhe.custos_resumo.total,
         ...(maoDeObra ? { mao_de_obra: maoDeObra } : {}), ...(impostos ? { impostos: impostos.map((t) => ({ nome: t.nome, percentual: t.percentual })) } : {}),
+        ...(logistica ? { logistica: logistica.map((v) => ({ veiculo: v.nome, horas: v.horas, custo_hora: v.custo_hora })) } : {}), ...(depreciacoes ? { depreciacoes } : {}),
         total_pedido: detalhe.custo_pedido.total,
       },
     });
@@ -417,6 +451,35 @@ export class PedidosService {
       if (!t) throw new BadRequestException('Imposto não encontrado para a empresa do pedido');
       if (!t.ativo && !noPedido.has(t.id)) throw new BadRequestException(`Imposto "${t.nome}" está inativo`);
       return { imposto_id: t.id as string, nome: t.nome as string, percentual: item.percentual ?? Number(t.percentual) };
+    });
+  }
+
+  // Veículos da empresa do pedido, ativos (ou já na logística do pedido), sem repetir; o custo-hora do cadastro fica gravado
+  private async validarLogistica(pedido: any, lista: LogisticaPedidoDto[]) {
+    const ids = lista.map((v) => v.veiculo_id);
+    if (new Set(ids).size !== ids.length) throw new BadRequestException('Veículo repetido na logística');
+    if (!ids.length) return [];
+    const [rows]: any = await this.pool.query(
+      "SELECT id, TRIM(CONCAT_WS(' ', tipo, marca, modelo, placa)) AS nome, custo_hora, ativo FROM veiculos WHERE id IN (?) AND empresa_id = ?",
+      [ids, pedido.empresa_id],
+    );
+    const [jaNoPedido]: any = await this.pool.query('SELECT veiculo_id FROM pedido_veiculos WHERE pedido_id = ?', [pedido.id]);
+    const noPedido = new Set<string>(jaNoPedido.map((r: any) => r.veiculo_id));
+    const porId = new Map<string, any>(rows.map((v: any) => [v.id, v]));
+    return lista.map((item) => {
+      const v = porId.get(item.veiculo_id);
+      if (!v) throw new BadRequestException('Veículo não encontrado na empresa do pedido');
+      if (!v.ativo && !noPedido.has(v.id)) throw new BadRequestException(`Veículo "${v.nome}" está inativo`);
+      return { veiculo_id: v.id as string, nome: v.nome as string, horas: item.horas ?? null, custo_hora: Number(v.custo_hora) };
+    });
+  }
+
+  // Depreciação: itens à parte, sem cadastro, com nome e valor em R$
+  private validarDepreciacoes(lista: DepreciacaoPedidoDto[]) {
+    return lista.map((d, i) => {
+      const nome = d.nome.trim();
+      if (nome.length < 2) throw new BadRequestException(`Depreciação ${i + 1}: informe o nome`);
+      return { nome, valor: Math.round(Number(d.valor) * 100) / 100 };
     });
   }
 

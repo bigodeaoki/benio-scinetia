@@ -7,7 +7,7 @@ export const ETAPAS = [
   { numero: 1, nome: 'Formulação e amostras', definida: true },
   { numero: 2, nome: 'Produção', definida: true },
   { numero: 3, nome: 'Custos', definida: true },
-  { numero: 4, nome: 'Etapa 4', definida: false },
+  { numero: 4, nome: 'Impostos', definida: true },
 ];
 export const STATUS_PEDIDO = ['rascunho', 'concluido', 'cancelado'] as const;
 const DATA = /^\d{4}-\d{2}-\d{2}$/;
@@ -175,7 +175,26 @@ export class ImpostoPedidoDto {
   percentual?: number;
 }
 
-// Etapa 3: outros custos (linhas em R$), mão de obra por categoria e impostos (% do custo global).
+// Logística do pedido: veículo da empresa do pedido e as horas de uso; custo = horas × custo-hora do cadastro
+export class LogisticaPedidoDto {
+  @IsUUID('4', { message: 'Veículo inválido' })
+  veiculo_id: string;
+
+  @IsOptional() @IsNumber({ maxDecimalPlaces: 2 }, { message: 'Horas de logística deve ser um número (até 2 casas)' }) @Min(0, { message: 'Horas de logística não pode ser negativo' })
+  horas?: number;
+}
+
+// Depreciação: item à parte do pedido, sem cadastro, com nome e valor em R$
+export class DepreciacaoPedidoDto {
+  @IsString() @Length(2, 150, { message: 'Depreciação: nome entre 2 e 150 caracteres' })
+  nome: string;
+
+  @IsNumber({ maxDecimalPlaces: 2 }, { message: 'Depreciação: valor em R$ com até 2 casas' }) @Min(0, { message: 'Depreciação: valor não pode ser negativo' })
+  valor: number;
+}
+
+// Etapas 3 e 4: mão de obra por categoria (% do custo global), logística (horas), depreciação e
+// outros custos (R$) na etapa 3; impostos (% do custo global) na etapa 4.
 // Lista omitida é mantida como está; lista vazia limpa
 export class CustosDto {
   @IsOptional() @IsArray({ message: 'Itens: lista' }) @ArrayMaxSize(200, { message: 'No máximo 200 linhas de custo' })
@@ -189,4 +208,12 @@ export class CustosDto {
   @IsOptional() @IsArray({ message: 'Impostos: lista' }) @ArrayMaxSize(30, { message: 'No máximo 30 impostos' })
   @ValidateNested({ each: true }) @Type(() => ImpostoPedidoDto)
   impostos?: ImpostoPedidoDto[];
+
+  @IsOptional() @IsArray({ message: 'Logística: lista' }) @ArrayMaxSize(30, { message: 'No máximo 30 veículos na logística' })
+  @ValidateNested({ each: true }) @Type(() => LogisticaPedidoDto)
+  logistica?: LogisticaPedidoDto[];
+
+  @IsOptional() @IsArray({ message: 'Depreciação: lista' }) @ArrayMaxSize(50, { message: 'No máximo 50 itens de depreciação' })
+  @ValidateNested({ each: true }) @Type(() => DepreciacaoPedidoDto)
+  depreciacoes?: DepreciacaoPedidoDto[];
 }

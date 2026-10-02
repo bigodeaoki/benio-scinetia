@@ -108,6 +108,8 @@ export default function PedidoDetalhe() {
         <Etapa2 key={p.id} p={p} podeEditar={podeEditar} recarregar={recarregar} antesDeAvancar={antesDeAvancar} />
       ) : etapaVista === 3 ? (
         <Etapa3 key={p.id} p={p} podeEditar={editaCustos} recarregar={recarregar} antesDeAvancar={antesDeAvancar} />
+      ) : etapaVista === 4 ? (
+        <Etapa4 key={p.id} p={p} podeEditar={editaCustos} recarregar={recarregar} antesDeAvancar={antesDeAvancar} />
       ) : <div className="vazio">Etapa {etapaVista} · {ETAPAS[etapaVista - 1]?.nome}: conteúdo em definição.</div>}
       {!novo && (
         <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 18 }}>
@@ -655,12 +657,12 @@ function Etapa2({ p, podeEditar, recarregar, antesDeAvancar }) {
   );
 }
 
-// Outros custos: o que ainda entra em linhas de R$ (produção vem da etapa 2; mão de obra e
-// impostos são % nesta etapa). Os tipos sem "adicionavel" aparecem só em lançamentos antigos
+// Outros custos: o que ainda entra em linhas de R$ (envase e avulsos). Os tipos sem "adicionavel"
+// aparecem só em lançamentos antigos (produção vem da etapa 2; mão de obra e logística têm bloco próprio)
 const TIPOS_CUSTO = [
   { valor: 'envase', rotulo: 'Envase', adicionavel: true, rota: () => '/envases', nome: (x) => x.nome, unidade: () => 'un', valorPadrao: () => '' },
-  { valor: 'veiculo', rotulo: 'Logística', adicionavel: true, rota: (p) => `/veiculos?empresa=${p.empresa_id}`, nome: (x) => [x.tipo, x.marca, x.modelo, x.placa].filter(Boolean).join(' '), unidade: () => 'h', valorPadrao: (x) => x.custo_hora ?? '' },
   { valor: 'outro', rotulo: 'Custos avulsos', adicionavel: true, rota: null },
+  { valor: 'veiculo', rotulo: 'Logística (lançamento antigo)' },
   { valor: 'materia_prima', rotulo: 'Matérias-primas (lançamento antigo)' },
   { valor: 'maquina', rotulo: 'Máquinas (lançamento antigo)' },
   { valor: 'mao_de_obra', rotulo: 'Mão de obra por pessoa (lançamento antigo)' },
@@ -670,7 +672,12 @@ const linhaDe = (c, k) => ({ k, tipo: c.tipo, referencia_id: c.referencia_id || 
 const assinaturaCustos = (ls) => JSON.stringify(ls.map((l) => [l.tipo, l.referencia_id || '', l.descricao, Number(l.quantidade) || 0, l.unidade, Number(l.valor_unitario) || 0]));
 const assinaturaMo = (ls) => JSON.stringify(ls.filter((m) => Number(m.percentual) > 0).map((m) => [m.categoria, Number(m.percentual)]).sort());
 const assinaturaIm = (ls) => JSON.stringify(ls.map((t) => [t.imposto_id, Number(t.percentual) || 0]));
+const assinaturaLog = (ls) => JSON.stringify(ls.map((v) => [v.veiculo_id, Number(v.horas) || 0]));
+const assinaturaDep = (ls) => JSON.stringify(ls.map((d) => [String(d.nome).trim(), Number(d.valor) || 0]));
 const totalLinha = (l) => Math.round((Number(l.quantidade) || 0) * (Number(l.valor_unitario) || 0) * 100) / 100;
+const custoVeiculo = (v) => Math.round((Number(v.horas) || 0) * (Number(v.custo_hora) || 0) * 100) / 100;
+const nomeVeiculo = (x) => [x.tipo, x.marca, x.modelo, x.placa].filter(Boolean).join(' ');
+const somar = (xs) => Math.round(xs.reduce((s, x) => s + (Number(x) || 0), 0) * 100) / 100;
 
 // Categorias da mão de obra: as dos funcionários ativos da empresa do pedido, mais as já gravadas nele
 function categoriasDoPedido(p) {
@@ -680,36 +687,50 @@ function categoriasDoPedido(p) {
   return lista;
 }
 
-// Etapa 3, Custos: o custo global da produção (etapa 2) é a base. Mão de obra por categoria e
-// impostos entram em % dessa base; outros custos, em R$. No topo e no fim, o custo total do pedido
+// Cartão de destaque no topo das etapas de custo, logo abaixo do stepper
+function BannerCusto({ esquerda, centro, direita }) {
+  const Bloco = ({ b, alinhar }) => (
+    <div style={{ textAlign: alinhar }}>
+      <div className="texto-suave negrito" style={{ textTransform: 'uppercase', fontSize: 11, letterSpacing: 0.4 }}>{b.rotulo}</div>
+      <div style={{ fontSize: b.grande ? 26 : 22, fontWeight: 700, lineHeight: 1.2 }}>{b.valor}</div>
+      {b.extra && <div className="texto-suave" style={{ fontSize: 12.5 }}>{b.extra}</div>}
+    </div>
+  );
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 24, padding: '12px 18px', borderRadius: 12, background: '#eef9ef', border: '2px solid #2f9e44', marginBottom: 4 }}>
+      <Bloco b={esquerda} />
+      {centro && <div className="texto-suave" style={{ fontSize: 13 }}>{centro}</div>}
+      <div style={{ marginLeft: 'auto' }}><Bloco b={direita} alinhar="right" /></div>
+    </div>
+  );
+}
+
+// Etapa 3, Custos: sobre o custo global da produção (etapa 2), mão de obra por categoria em %,
+// logística por horas de cada veículo, depreciação (nome e valor) e outros custos em R$.
+// Os impostos ficam na etapa 4
 function Etapa3({ p, podeEditar, recarregar, antesDeAvancar }) {
   const cp = p.custos_producao || {};
   const base = Number(cp.total) || 0;
   const planejada = Number(p.quantidade_producao) || 0;
   const prevista = Number(p.producao_prevista) || 0;
   const [maoDeObra, setMaoDeObra] = React.useState(() => categoriasDoPedido(p));
-  const [impostos, setImpostos] = React.useState(() => (p.impostos || []).map((t) => ({ imposto_id: t.imposto_id, nome: t.nome, percentual_cadastro: t.percentual_cadastro, percentual: t.percentual })));
+  const [logistica, setLogistica] = React.useState(() => (p.logistica || []).map((v) => ({ veiculo_id: v.veiculo_id, nome: v.nome, horas: v.horas ?? '', custo_hora: v.custo_hora })));
+  const [depreciacoes, setDepreciacoes] = React.useState(() => (p.depreciacoes || []).map((d, i) => ({ k: i + 1, nome: d.nome, valor: d.valor })));
   const [linhas, setLinhas] = React.useState((p.custos || []).map((c, i) => linhaDe(c, i + 1)));
-  const proximaChave = React.useRef((p.custos || []).length + 1);
-  const [catalogos, setCatalogos] = React.useState({});
+  const proximaChave = React.useRef((p.custos || []).length + (p.depreciacoes || []).length + 1);
+  const { dados: veiculos } = useDados(() => api(`/veiculos?empresa=${p.empresa_id}`).catch(() => []), [p.empresa_id]);
+  const { dados: envases } = useDados(() => api('/envases').catch(() => null), [p.id]);
   const [novo, setNovo] = React.useState({ tipo: 'envase', referencia_id: '', descricao: '' });
-  const [impostoEscolhido, setImpostoEscolhido] = React.useState('');
+  const [veiculoEscolhido, setVeiculoEscolhido] = React.useState('');
+  const [novaDep, setNovaDep] = React.useState({ nome: '', valor: '' });
   const [erro, setErro] = React.useState(null);
   const [salvando, setSalvando] = React.useState(false);
-
-  // Cadastros para os outros custos, cada um por conta própria: um erro não derruba os outros
-  React.useEffect(() => {
-    let vivo = true;
-    Promise.all(TIPOS_CUSTO.filter((t) => t.adicionavel && t.rota).map((t) => api(t.rota(p)).then((l) => [t.valor, (l || []).filter((x) => x.ativo !== 0)]).catch(() => [t.valor, null])))
-      .then((pares) => { if (vivo) setCatalogos(Object.fromEntries(pares)); });
-    return () => { vivo = false; };
-  }, [p.id]);
 
   function adicionarLinha(tipoValor, item, extra = {}) {
     const t = tipoDe(tipoValor);
     setLinhas((ls) => [...ls, {
       k: proximaChave.current++, tipo: tipoValor, referencia_id: item?.id || '', descricao: item ? t.nome(item) : extra.descricao || '',
-      quantidade: extra.quantidade ?? 1, unidade: extra.unidade ?? (item ? t.unidade(item) : 'un'), valor_unitario: extra.valor_unitario ?? (item ? t.valorPadrao(item) : ''),
+      quantidade: 1, unidade: item ? t.unidade(item) : 'un', valor_unitario: item ? t.valorPadrao(item) : '',
     }]);
   }
   function adicionarNovo() {
@@ -720,47 +741,63 @@ function Etapa3({ p, podeEditar, recarregar, antesDeAvancar }) {
       setNovo((n) => ({ ...n, descricao: '' }));
       return;
     }
-    const item = (catalogos[novo.tipo] || []).find((x) => x.id === novo.referencia_id);
-    if (!item) return setErro('Escolha o item do cadastro');
-    adicionarLinha(novo.tipo, item);
+    const item = (envases || []).find((x) => x.id === novo.referencia_id);
+    if (!item) return setErro('Escolha o item de envase');
+    adicionarLinha('envase', item);
     setNovo((n) => ({ ...n, referencia_id: '' }));
   }
-  function adicionarImposto() {
-    const t = (p.impostos_disponiveis || []).find((x) => x.id === impostoEscolhido);
-    if (!t) return;
-    // O percentual nasce do cadastro e pode ser ajustado só para este pedido
-    setImpostos((ls) => [...ls, { imposto_id: t.id, nome: t.nome, percentual_cadastro: t.percentual, percentual: t.percentual }]);
-    setImpostoEscolhido('');
+  function adicionarVeiculo() {
+    const v = (veiculos || []).find((x) => x.id === veiculoEscolhido);
+    if (!v) return;
+    // O custo-hora vem do cadastro do veículo; as horas, quem lança informa
+    setLogistica((ls) => [...ls, { veiculo_id: v.id, nome: nomeVeiculo(v), horas: '', custo_hora: v.custo_hora }]);
+    setVeiculoEscolhido('');
+  }
+  function adicionarDepreciacao() {
+    setErro(null);
+    if (novaDep.nome.trim().length < 2) return setErro('Depreciação: informe o nome');
+    if (!(Number(novaDep.valor) >= 0) || novaDep.valor === '') return setErro('Depreciação: informe o valor');
+    setDepreciacoes((ds) => [...ds, { k: proximaChave.current++, nome: novaDep.nome.trim(), valor: novaDep.valor }]);
+    setNovaDep({ nome: '', valor: '' });
   }
   const mudarLinha = (k, campo, valor) => setLinhas((ls) => ls.map((l) => (l.k === k ? { ...l, [campo]: valor } : l)));
   const removerLinha = (k) => setLinhas((ls) => ls.filter((l) => l.k !== k));
   const mudarMaoDeObra = (i, valor) => setMaoDeObra((ls) => ls.map((m, j) => (j === i ? { ...m, percentual: valor } : m)));
-  const mudarImposto = (i, valor) => setImpostos((ls) => ls.map((t, j) => (j === i ? { ...t, percentual: valor } : t)));
-  const removerImposto = (i) => setImpostos((ls) => ls.filter((_, j) => j !== i));
+  const mudarVeiculo = (i, valor) => setLogistica((ls) => ls.map((v, j) => (j === i ? { ...v, horas: valor } : v)));
+  const removerVeiculo = (i) => setLogistica((ls) => ls.filter((_, j) => j !== i));
+  const mudarDepreciacao = (k, campo, valor) => setDepreciacoes((ds) => ds.map((d) => (d.k === k ? { ...d, [campo]: valor } : d)));
+  const removerDepreciacao = (k) => setDepreciacoes((ds) => ds.filter((d) => d.k !== k));
 
   const alterado = assinaturaCustos(linhas) !== assinaturaCustos((p.custos || []).map((c, i) => linhaDe(c, i)))
-    || assinaturaMo(maoDeObra) !== assinaturaMo(p.mao_de_obra || []) || assinaturaIm(impostos) !== assinaturaIm(p.impostos || []);
-  const outros = Math.round(linhas.reduce((s, l) => s + totalLinha(l), 0) * 100) / 100;
-  const tot = custoTotalPedido(base, maoDeObra.map((m) => m.percentual), impostos.map((t) => t.percentual), outros);
-  const disponiveis = (p.impostos_disponiveis || []).filter((t) => !impostos.some((x) => x.imposto_id === t.id));
+    || assinaturaMo(maoDeObra) !== assinaturaMo(p.mao_de_obra || []) || assinaturaLog(logistica) !== assinaturaLog(p.logistica || [])
+    || assinaturaDep(depreciacoes) !== assinaturaDep(p.depreciacoes || []);
+  const custoLog = somar(logistica.map(custoVeiculo));
+  const custoDep = somar(depreciacoes.map((d) => d.valor));
+  const outros = somar(linhas.map(totalLinha));
+  const tot = custoTotalPedido(base, maoDeObra.map((m) => m.percentual), [], custoLog + custoDep + outros);
+  const impostosSalvos = Number(p.custo_pedido?.impostos) || 0;
+  const disponiveis = (veiculos || []).filter((v) => v.ativo && !logistica.some((x) => x.veiculo_id === v.id));
 
   async function salvar() {
     setErro(null);
     const moRuim = maoDeObra.find((m) => m.percentual !== '' && !(Number(m.percentual) >= 0 && Number(m.percentual) <= 1000));
     if (moRuim) { setErro(`Mão de obra ${moRuim.categoria}: de 0 a 1000 %`); return false; }
-    const imRuim = impostos.find((t) => !(Number(t.percentual) >= 0 && Number(t.percentual) <= 100));
-    if (imRuim) { setErro(`Imposto ${imRuim.nome}: de 0 a 100 %`); return false; }
+    const logRuim = logistica.find((v) => v.horas !== '' && !(Number(v.horas) >= 0));
+    if (logRuim) { setErro(`Horas de ${logRuim.nome}: informe um número`); return false; }
+    const depRuim = depreciacoes.find((d) => String(d.nome).trim().length < 2 || d.valor === '' || !(Number(d.valor) >= 0));
+    if (depRuim) { setErro('Depreciação: confira nome e valor de cada item'); return false; }
     const invalida = linhas.find((l) => !(Number(l.quantidade) >= 0) || !(Number(l.valor_unitario) >= 0) || (l.tipo === 'outro' && !String(l.descricao).trim()));
     if (invalida) { setErro('Outros custos: confira quantidade, valor unitário e descrição das linhas'); return false; }
     setSalvando(true);
     try {
       await api(`/pedidos/${p.id}/custos`, { method: 'PUT', body: {
+        mao_de_obra: maoDeObra.filter((m) => Number(m.percentual) > 0).map((m) => ({ categoria: m.categoria, percentual: Number(m.percentual) })),
+        logistica: logistica.map((v) => ({ veiculo_id: v.veiculo_id, horas: v.horas === '' ? undefined : Number(v.horas) })),
+        depreciacoes: depreciacoes.map((d) => ({ nome: String(d.nome).trim(), valor: Number(d.valor) })),
         itens: linhas.map((l) => ({
           tipo: l.tipo, referencia_id: l.referencia_id || undefined, descricao: l.tipo === 'outro' ? String(l.descricao).trim() : undefined,
           quantidade: Number(l.quantidade) || 0, unidade: l.unidade || undefined, valor_unitario: Number(l.valor_unitario) || 0,
         })),
-        mao_de_obra: maoDeObra.filter((m) => Number(m.percentual) > 0).map((m) => ({ categoria: m.categoria, percentual: Number(m.percentual) })),
-        impostos: impostos.map((t) => ({ imposto_id: t.imposto_id, percentual: Number(t.percentual) })),
       } });
       recarregar();
       toast.sucesso('Custos salvos');
@@ -780,35 +817,23 @@ function Etapa3({ p, podeEditar, recarregar, antesDeAvancar }) {
   });
 
   const grupos = TIPOS_CUSTO.map((t) => ({ t, itens: linhas.filter((l) => l.tipo === t.valor) })).filter((g) => g.itens.length);
-  const itensDoTipo = catalogos[novo.tipo];
-  const subtotal = (itens) => itens.reduce((s, l) => s + totalLinha(l), 0);
-  const ehFilial = p.empresa_id !== p.matriz_id;
 
   return (
     <>
-      {/* Logo abaixo do stepper: a base desta etapa e o total que ela forma */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 24, padding: '12px 18px', borderRadius: 12, background: '#eef9ef', border: '2px solid #2f9e44', marginBottom: 4 }}>
-        <div>
-          <div className="texto-suave negrito" style={{ textTransform: 'uppercase', fontSize: 11, letterSpacing: 0.4 }}>Custo global da produção (etapa 2)</div>
-          <div style={{ fontSize: 26, fontWeight: 700, lineHeight: 1.2 }}>{fmtBRL(base)}</div>
-          <div className="texto-suave" style={{ fontSize: 12.5 }}>matérias-primas {fmtBRL(cp.materias_primas || 0)} · máquinas {fmtBRL(cp.maquinas || 0)} · utilitários {fmtBRL(cp.utilitarios || 0)}</div>
-        </div>
-        <div className="texto-suave" style={{ fontSize: 13 }}>{planejada ? `${fmtBRL(base / planejada)} por unidade · ${fmtQtd(planejada)} ${p.unidade_producao}` : 'sem quantidade na etapa 2'}<br />base dos percentuais desta etapa</div>
-        <div style={{ marginLeft: 'auto', textAlign: 'right' }}>
-          <div className="texto-suave negrito" style={{ textTransform: 'uppercase', fontSize: 11, letterSpacing: 0.4 }}>Custo total do pedido</div>
-          <div style={{ fontSize: 22, fontWeight: 700, lineHeight: 1.2 }}>{fmtBRL(tot.total)}</div>
-          <div className="texto-suave" style={{ fontSize: 12.5 }}>{alterado ? 'com as alterações ainda não salvas' : 'base + mão de obra + impostos + outros'}</div>
-        </div>
-      </div>
+      <BannerCusto
+        esquerda={{ rotulo: 'Custo global da produção (etapa 2)', valor: fmtBRL(base), grande: true, extra: `matérias-primas ${fmtBRL(cp.materias_primas || 0)} · máquinas ${fmtBRL(cp.maquinas || 0)} · utilitários ${fmtBRL(cp.utilitarios || 0)}` }}
+        centro={<>{planejada ? `${fmtBRL(base / planejada)} por unidade · ${fmtQtd(planejada)} ${p.unidade_producao}` : 'sem quantidade na etapa 2'}<br />base dos percentuais da mão de obra</>}
+        direita={{ rotulo: 'Custo do pedido sem impostos', valor: fmtBRL(tot.subtotal), extra: alterado ? 'com as alterações ainda não salvas' : impostosSalvos ? `+ ${fmtBRL(impostosSalvos)} de impostos na etapa 4` : 'impostos na etapa 4' }}
+      />
       {!podeEditar && <div className="alerta alerta-info">Só dono, administrativo e financeiro editam os custos.</div>}
       <Erro msg={erro} />
 
       <Divisoria numero={1} titulo="Mão de obra por categoria" primeiro />
-      <div className="alerta alerta-info">Categorias da mão de obra de <strong>{p.empresa_nome}</strong>, a empresa que criou o pedido. Informe quanto cada uma representa, em % do custo global.</div>
-      {!maoDeObra.length ? <div className="alerta alerta-aviso">Nenhum funcionário ativo em {p.empresa_nome}: as categorias vêm do cadastro de Mão de obra.</div> : (
+      <div className="alerta alerta-info">Áreas da mão de obra de <strong>{p.empresa_nome}</strong>, a empresa que criou o pedido, conforme a aba Mão de obra. Informe quanto cada uma representa, em % do custo global.</div>
+      {!maoDeObra.length ? <div className="alerta alerta-aviso">Nenhum funcionário ativo em {p.empresa_nome}: as áreas vêm do cadastro de Mão de obra.</div> : (
         <div className="tabela-envolucro">
           <table className="tabela">
-            <thead><tr><th>Categoria</th><th className="num">Funcionários</th><th className="num">% do custo global</th><th className="num">Valor</th></tr></thead>
+            <thead><tr><th>Área</th><th className="num">Funcionários</th><th className="num">% do custo global</th><th className="num">Valor</th></tr></thead>
             <tbody>
               {maoDeObra.map((m, i) => (
                 <tr key={m.categoria}>
@@ -825,8 +850,199 @@ function Etapa3({ p, podeEditar, recarregar, antesDeAvancar }) {
         </div>
       )}
 
-      <Divisoria numero={2} titulo="Impostos" />
-      <div className="alerta alerta-info">Impostos de {p.empresa_nome}{ehFilial ? ' e da matriz' : ''}, do cadastro de Impostos. O percentual vem do cadastro, pode ser ajustado só para este pedido e incide sobre o custo global.</div>
+      <Divisoria numero={2} titulo="Logística" />
+      <div className="alerta alerta-info">Veículos de {p.empresa_nome} usados no pedido, com as horas de uso. O custo por hora vem do cadastro de Logística.</div>
+      {!logistica.length ? <Vazio msg="Nenhum veículo no pedido" /> : (
+        <div className="tabela-envolucro">
+          <table className="tabela">
+            <thead><tr><th>Veículo</th><th className="num">Horas</th><th className="num">Custo/hora</th><th className="num">Custo</th>{podeEditar && <th className="acoes">Ações</th>}</tr></thead>
+            <tbody>
+              {logistica.map((v, i) => (
+                <tr key={v.veiculo_id}>
+                  <td className="negrito">{v.nome}</td>
+                  <td className="num">{podeEditar
+                    ? <input type="number" step="0.25" min="0" value={v.horas} onChange={(e) => mudarVeiculo(i, e.target.value)} style={{ width: 90, textAlign: 'right' }} placeholder="0" />
+                    : v.horas !== '' && v.horas != null ? `${fmtQtd(v.horas, 2)} h` : '—'}</td>
+                  <td className="num">{fmtBRL(v.custo_hora)}</td>
+                  <td className="num negrito">{fmtBRL(custoVeiculo(v))}</td>
+                  {podeEditar && <td className="acoes"><button type="button" className="botao botao-perigo botao-mini" onClick={() => removerVeiculo(i)}>Remover</button></td>}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {podeEditar && (
+        <div className="linha-campos" style={{ alignItems: 'flex-end', marginTop: 8 }}>
+          <Campo rotulo="Adicionar veículo" dica={disponiveis.length ? undefined : 'Todos os veículos ativos desta empresa já estão no pedido, ou não há veículos cadastrados'}>
+            <select value={veiculoEscolhido} onChange={(e) => setVeiculoEscolhido(e.target.value)} disabled={!disponiveis.length}>
+              <option value="">Escolha…</option>
+              {disponiveis.map((v) => <option key={v.id} value={v.id}>{nomeVeiculo(v)} — {fmtBRL(v.custo_hora)}/h</option>)}
+            </select>
+          </Campo>
+          <button type="button" className="botao botao-secundario" style={{ marginBottom: 10 }} disabled={!veiculoEscolhido} onClick={adicionarVeiculo}>+ Adicionar</button>
+        </div>
+      )}
+
+      <Divisoria numero={3} titulo="Depreciação" />
+      <div className="alerta alerta-info">Item à parte do pedido, sem cadastro: dê um nome e o valor em R$.</div>
+      {!depreciacoes.length ? <Vazio msg="Nenhuma depreciação lançada" /> : (
+        <div className="tabela-envolucro">
+          <table className="tabela">
+            <thead><tr><th>Nome</th><th className="num">Valor (R$)</th>{podeEditar && <th className="acoes">Ações</th>}</tr></thead>
+            <tbody>
+              {depreciacoes.map((d) => (
+                <tr key={d.k}>
+                  <td>{podeEditar ? <input value={d.nome} onChange={(e) => mudarDepreciacao(d.k, 'nome', e.target.value)} /> : <span className="negrito">{d.nome}</span>}</td>
+                  <td className="num">{podeEditar
+                    ? <input type="number" step="0.01" min="0" value={d.valor} onChange={(e) => mudarDepreciacao(d.k, 'valor', e.target.value)} style={{ width: 140, textAlign: 'right' }} />
+                    : fmtBRL(d.valor)}</td>
+                  {podeEditar && <td className="acoes"><button type="button" className="botao botao-perigo botao-mini" onClick={() => removerDepreciacao(d.k)}>Remover</button></td>}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {podeEditar && (
+        <div className="linha-campos" style={{ alignItems: 'flex-end', marginTop: 8 }}>
+          <Campo rotulo="Nome"><input value={novaDep.nome} onChange={(e) => setNovaDep((n) => ({ ...n, nome: e.target.value }))} placeholder="ex.: depreciação da linha de envase" /></Campo>
+          <Campo rotulo="Valor (R$)" largura={160}><input type="number" step="0.01" min="0" value={novaDep.valor} onChange={(e) => setNovaDep((n) => ({ ...n, valor: e.target.value }))} /></Campo>
+          <button type="button" className="botao botao-secundario" style={{ marginBottom: 10 }} onClick={adicionarDepreciacao}>+ Adicionar</button>
+        </div>
+      )}
+
+      <Divisoria numero={4} titulo="Outros custos" />
+      <div className="alerta alerta-info">Envase e custos avulsos, em R$. Nome e valor ficam gravados no pedido: mudar o cadastro depois não altera este custo.</div>
+      {podeEditar && (
+        <div className="linha-campos" style={{ alignItems: 'flex-end' }}>
+          <Campo rotulo="Tipo" largura={170}>
+            <select value={novo.tipo} onChange={(e) => setNovo({ tipo: e.target.value, referencia_id: '', descricao: '' })}>{TIPOS_CUSTO.filter((t) => t.adicionavel).map((t) => <option key={t.valor} value={t.valor}>{t.rotulo}</option>)}</select>
+          </Campo>
+          {novo.tipo === 'outro' ? (
+            <Campo rotulo="Descrição"><input value={novo.descricao} onChange={(e) => setNovo((n) => ({ ...n, descricao: e.target.value }))} placeholder="ex.: análise de laboratório" /></Campo>
+          ) : (
+            <Campo rotulo="Item de envase" dica={envases && !envases.length ? 'Nenhum item de envase cadastrado' : undefined}>
+              <select value={novo.referencia_id} onChange={(e) => setNovo((n) => ({ ...n, referencia_id: e.target.value }))} disabled={!envases || !envases.length}>
+                <option value="">Escolha…</option>
+                {(envases || []).filter((x) => x.ativo !== 0).map((x) => <option key={x.id} value={x.id}>{x.nome}{x.origem === 'matriz' ? ' (da matriz)' : ''}</option>)}
+              </select>
+            </Campo>
+          )}
+          <button type="button" className="botao botao-secundario" style={{ marginBottom: 10 }} onClick={adicionarNovo}>+ Adicionar</button>
+        </div>
+      )}
+      {!linhas.length ? <Vazio msg="Nenhum outro custo lançado" /> : (
+        <div className="tabela-envolucro">
+          <table className="tabela">
+            <thead><tr><th>Item</th><th className="num">Quantidade</th><th>Unidade</th><th className="num">Valor unitário (R$)</th><th className="num">Total</th>{podeEditar && <th className="acoes">Ações</th>}</tr></thead>
+            <tbody>
+              {grupos.map(({ t, itens }) => (
+                <React.Fragment key={t.valor}>
+                  <tr style={{ background: '#f4f6fa' }}><td colSpan={4} className="negrito">{t.rotulo}</td><td className="num negrito">{fmtBRL(somar(itens.map(totalLinha)))}</td>{podeEditar && <td />}</tr>
+                  {itens.map((l) => (
+                    <tr key={l.k}>
+                      <td>{podeEditar && l.tipo === 'outro' ? <input value={l.descricao} onChange={(e) => mudarLinha(l.k, 'descricao', e.target.value)} /> : l.descricao}</td>
+                      <td className="num">{podeEditar ? <input type="number" step="any" min="0" value={l.quantidade} onChange={(e) => mudarLinha(l.k, 'quantidade', e.target.value)} style={{ width: 110, textAlign: 'right' }} /> : fmtQtd(l.quantidade)}</td>
+                      <td>{podeEditar ? <input value={l.unidade} onChange={(e) => mudarLinha(l.k, 'unidade', e.target.value)} style={{ width: 70 }} /> : l.unidade}</td>
+                      <td className="num">{podeEditar ? <input type="number" step="0.0001" min="0" value={l.valor_unitario} onChange={(e) => mudarLinha(l.k, 'valor_unitario', e.target.value)} style={{ width: 120, textAlign: 'right' }} /> : fmtBRL(l.valor_unitario)}</td>
+                      <td className="num negrito">{fmtBRL(totalLinha(l))}</td>
+                      {podeEditar && <td className="acoes"><button type="button" className="botao botao-perigo botao-mini" onClick={() => removerLinha(l.k)}>Remover</button></td>}
+                    </tr>
+                  ))}
+                </React.Fragment>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {podeEditar && <button className="botao botao-secundario" style={{ marginTop: 8 }} disabled={salvando || !alterado} onClick={salvar}>{salvando ? 'Salvando…' : 'Salvar custos'}</button>}
+
+      {/* Resumão da etapa, no fim de tudo */}
+      <div style={{ marginTop: 24, padding: '14px 16px 4px', borderRadius: 12, background: 'var(--azul-100)', border: '1px solid #b9d0f0' }}>
+        <div className="texto-suave negrito" style={{ textTransform: 'uppercase', fontSize: 11, letterSpacing: 0.4, marginBottom: 10 }}>Resumo dos custos</div>
+        <div className="grade-kpis">
+          <div className="kpi"><div className="kpi-rotulo">Custo global (base)</div><div className="kpi-valor">{fmtBRL(base)}</div><div className="kpi-extra">matéria-prima + máquinas + utilitários</div></div>
+          <div className="kpi"><div className="kpi-rotulo">Mão de obra</div><div className="kpi-valor">{fmtBRL(tot.maoDeObra)}</div><div className="kpi-extra">{fmtQtd(tot.maoDeObraPct, 2)} % do custo global</div></div>
+          <div className="kpi"><div className="kpi-rotulo">Logística</div><div className="kpi-valor">{fmtBRL(custoLog)}</div><div className="kpi-extra">{logistica.length ? `${fmtQtd(somar(logistica.map((v) => v.horas)), 2)} h × custo-hora` : 'nenhum veículo'}</div></div>
+          <div className="kpi"><div className="kpi-rotulo">Depreciação</div><div className="kpi-valor">{fmtBRL(custoDep)}</div><div className="kpi-extra">{depreciacoes.length} item(ns)</div></div>
+          <div className="kpi"><div className="kpi-rotulo">Outros custos</div><div className="kpi-valor">{fmtBRL(outros)}</div><div className="kpi-extra">{linhas.length} linha(s)</div></div>
+          <div className="kpi" style={{ background: '#fff', border: '2px solid #2f9e44' }}><div className="kpi-rotulo">Custo sem impostos</div><div className="kpi-valor">{fmtBRL(tot.subtotal)}</div><div className="kpi-extra">{alterado ? 'ainda não salvo' : 'impostos na etapa 4'}</div></div>
+          <div className="kpi" style={prevista && prevista < planejada ? { background: '#fdf2d9', border: '1px solid #e9c46a' } : undefined}>
+            <div className="kpi-rotulo">Por unidade, sem impostos</div>
+            <div className="kpi-valor">{planejada ? fmtBRL(tot.subtotal / planejada) : '—'}</div>
+            <div className="kpi-extra">{prevista && prevista < planejada ? `${fmtBRL(tot.subtotal / prevista)} por unidade prevista` : planejada ? `${fmtQtd(planejada)} ${p.unidade_producao} planejadas` : 'sem quantidade na etapa 2'}</div>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+// Etapa 4, Impostos: impostos do cadastro, em % do custo global da produção, somados ao custo
+// sem impostos das etapas 2 e 3. O percentual vem do cadastro e pode ser ajustado só no pedido
+function Etapa4({ p, podeEditar, recarregar, antesDeAvancar }) {
+  const cpd = p.custo_pedido || {};
+  const base = Number(cpd.base) || 0;
+  const semImpostos = Number(cpd.subtotal) || 0;
+  const planejada = Number(p.quantidade_producao) || 0;
+  const prevista = Number(p.producao_prevista) || 0;
+  const [impostos, setImpostos] = React.useState(() => (p.impostos || []).map((t) => ({ imposto_id: t.imposto_id, nome: t.nome, percentual_cadastro: t.percentual_cadastro, percentual: t.percentual })));
+  const [impostoEscolhido, setImpostoEscolhido] = React.useState('');
+  const [erro, setErro] = React.useState(null);
+  const [salvando, setSalvando] = React.useState(false);
+  const ehFilial = p.empresa_id !== p.matriz_id;
+
+  function adicionarImposto() {
+    const t = (p.impostos_disponiveis || []).find((x) => x.id === impostoEscolhido);
+    if (!t) return;
+    // O percentual nasce do cadastro e pode ser ajustado só para este pedido
+    setImpostos((ls) => [...ls, { imposto_id: t.id, nome: t.nome, percentual_cadastro: t.percentual, percentual: t.percentual }]);
+    setImpostoEscolhido('');
+  }
+  const mudarImposto = (i, valor) => setImpostos((ls) => ls.map((t, j) => (j === i ? { ...t, percentual: valor } : t)));
+  const removerImposto = (i) => setImpostos((ls) => ls.filter((_, j) => j !== i));
+  const alterado = assinaturaIm(impostos) !== assinaturaIm(p.impostos || []);
+  const tot = custoTotalPedido(base, [], impostos.map((t) => t.percentual), 0);
+  const total = Math.round((semImpostos + tot.impostos) * 100) / 100;
+  const disponiveis = (p.impostos_disponiveis || []).filter((t) => !impostos.some((x) => x.imposto_id === t.id));
+
+  async function salvar() {
+    setErro(null);
+    const ruim = impostos.find((t) => !(Number(t.percentual) >= 0 && Number(t.percentual) <= 100));
+    if (ruim) { setErro(`Imposto ${ruim.nome}: de 0 a 100 %`); return false; }
+    setSalvando(true);
+    try {
+      await api(`/pedidos/${p.id}/custos`, { method: 'PUT', body: { impostos: impostos.map((t) => ({ imposto_id: t.imposto_id, percentual: Number(t.percentual) })) } });
+      recarregar();
+      toast.sucesso('Impostos salvos');
+      return true;
+    } catch (e) {
+      setErro(e.message);
+      return false;
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  // Sair da etapa (anterior ou stepper) salva antes, se algo mudou
+  React.useEffect(() => {
+    antesDeAvancar.current = podeEditar ? async () => (alterado ? salvar() : true) : null;
+    return () => { antesDeAvancar.current = null; };
+  });
+
+  return (
+    <>
+      <BannerCusto
+        esquerda={{ rotulo: 'Custo do pedido sem impostos (etapas 2 e 3)', valor: fmtBRL(semImpostos), grande: true, extra: `os impostos incidem sobre o custo global da produção: ${fmtBRL(base)}` }}
+        centro={planejada ? `${fmtBRL(semImpostos / planejada)} por unidade, sem impostos` : null}
+        direita={{ rotulo: 'Custo total do pedido com impostos', valor: fmtBRL(total), extra: alterado ? 'com as alterações ainda não salvas' : `${fmtBRL(tot.impostos)} de impostos` }}
+      />
+      {!podeEditar && <div className="alerta alerta-info">Só dono, administrativo e financeiro editam os impostos do pedido.</div>}
+      <Erro msg={erro} />
+
+      <Divisoria numero={1} titulo="Impostos" primeiro />
+      <div className="alerta alerta-info">Impostos de {p.empresa_nome}{ehFilial ? ' e da matriz' : ''}, do cadastro de Impostos. O percentual vem do cadastro, pode ser ajustado só para este pedido e incide sobre o custo global da produção ({fmtBRL(base)}).</div>
       {!impostos.length ? <Vazio msg="Nenhum imposto no pedido" /> : (
         <div className="tabela-envolucro">
           <table className="tabela">
@@ -861,66 +1077,18 @@ function Etapa3({ p, podeEditar, recarregar, antesDeAvancar }) {
           <button type="button" className="botao botao-secundario" style={{ marginBottom: 10 }} disabled={!impostoEscolhido} onClick={adicionarImposto}>+ Adicionar</button>
         </div>
       )}
+      {podeEditar && <button className="botao botao-secundario" style={{ marginTop: 6 }} disabled={salvando || !alterado} onClick={salvar}>{salvando ? 'Salvando…' : 'Salvar impostos'}</button>}
 
-      <Divisoria numero={3} titulo="Outros custos" />
-      <div className="alerta alerta-info">Envase, logística e custos avulsos, em R$. Nome e valor ficam gravados no pedido: mudar o cadastro depois não altera este custo.</div>
-      {podeEditar && (
-        <div className="linha-campos" style={{ alignItems: 'flex-end' }}>
-          <Campo rotulo="Tipo" largura={170}>
-            <select value={novo.tipo} onChange={(e) => setNovo({ tipo: e.target.value, referencia_id: '', descricao: '' })}>{TIPOS_CUSTO.filter((t) => t.adicionavel).map((t) => <option key={t.valor} value={t.valor}>{t.rotulo}</option>)}</select>
-          </Campo>
-          {novo.tipo === 'outro' ? (
-            <Campo rotulo="Descrição"><input value={novo.descricao} onChange={(e) => setNovo((n) => ({ ...n, descricao: e.target.value }))} placeholder="ex.: frete, análise de laboratório" /></Campo>
-          ) : (
-            <Campo rotulo="Item" dica={itensDoTipo === null ? 'Seu papel não acessa este cadastro' : itensDoTipo && !itensDoTipo.length ? 'Nenhum item ativo neste cadastro' : undefined}>
-              <select value={novo.referencia_id} onChange={(e) => setNovo((n) => ({ ...n, referencia_id: e.target.value }))} disabled={!itensDoTipo || !itensDoTipo.length}>
-                <option value="">Escolha…</option>
-                {(itensDoTipo || []).map((x) => <option key={x.id} value={x.id}>{tipoDe(novo.tipo).nome(x)}{x.custo_hora != null ? ` — ${fmtBRL(x.custo_hora)}/h` : ''}{x.origem === 'matriz' ? ' (da matriz)' : ''}</option>)}
-              </select>
-            </Campo>
-          )}
-          <button type="button" className="botao botao-secundario" style={{ marginBottom: 10 }} onClick={adicionarNovo}>+ Adicionar</button>
-        </div>
-      )}
-      {!linhas.length ? <Vazio msg="Nenhum outro custo lançado" /> : (
-        <div className="tabela-envolucro">
-          <table className="tabela">
-            <thead><tr><th>Item</th><th className="num">Quantidade</th><th>Unidade</th><th className="num">Valor unitário (R$)</th><th className="num">Total</th>{podeEditar && <th className="acoes">Ações</th>}</tr></thead>
-            <tbody>
-              {grupos.map(({ t, itens }) => (
-                <React.Fragment key={t.valor}>
-                  <tr style={{ background: '#f4f6fa' }}><td colSpan={4} className="negrito">{t.rotulo}</td><td className="num negrito">{fmtBRL(subtotal(itens))}</td>{podeEditar && <td />}</tr>
-                  {itens.map((l) => (
-                    <tr key={l.k}>
-                      <td>{podeEditar && l.tipo === 'outro' ? <input value={l.descricao} onChange={(e) => mudarLinha(l.k, 'descricao', e.target.value)} /> : l.descricao}</td>
-                      <td className="num">{podeEditar ? <input type="number" step="any" min="0" value={l.quantidade} onChange={(e) => mudarLinha(l.k, 'quantidade', e.target.value)} style={{ width: 110, textAlign: 'right' }} /> : fmtQtd(l.quantidade)}</td>
-                      <td>{podeEditar ? <input value={l.unidade} onChange={(e) => mudarLinha(l.k, 'unidade', e.target.value)} style={{ width: 70 }} /> : l.unidade}</td>
-                      <td className="num">{podeEditar ? <input type="number" step="0.0001" min="0" value={l.valor_unitario} onChange={(e) => mudarLinha(l.k, 'valor_unitario', e.target.value)} style={{ width: 120, textAlign: 'right' }} /> : fmtBRL(l.valor_unitario)}</td>
-                      <td className="num negrito">{fmtBRL(totalLinha(l))}</td>
-                      {podeEditar && <td className="acoes"><button type="button" className="botao botao-perigo botao-mini" onClick={() => removerLinha(l.k)}>Remover</button></td>}
-                    </tr>
-                  ))}
-                </React.Fragment>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-      {podeEditar && <button className="botao botao-secundario" style={{ marginTop: 8 }} disabled={salvando || !alterado} onClick={salvar}>{salvando ? 'Salvando…' : 'Salvar custos'}</button>}
-
-      {/* Resumão da etapa, no fim de tudo */}
       <div style={{ marginTop: 24, padding: '14px 16px 4px', borderRadius: 12, background: 'var(--azul-100)', border: '1px solid #b9d0f0' }}>
-        <div className="texto-suave negrito" style={{ textTransform: 'uppercase', fontSize: 11, letterSpacing: 0.4, marginBottom: 10 }}>Resumo dos custos</div>
+        <div className="texto-suave negrito" style={{ textTransform: 'uppercase', fontSize: 11, letterSpacing: 0.4, marginBottom: 10 }}>Resumo do pedido</div>
         <div className="grade-kpis">
-          <div className="kpi"><div className="kpi-rotulo">Custo global (base)</div><div className="kpi-valor">{fmtBRL(base)}</div><div className="kpi-extra">matéria-prima + máquinas + utilitários</div></div>
-          <div className="kpi"><div className="kpi-rotulo">Mão de obra</div><div className="kpi-valor">{fmtBRL(tot.maoDeObra)}</div><div className="kpi-extra">{fmtQtd(tot.maoDeObraPct, 2)} % do custo global</div></div>
+          <div className="kpi"><div className="kpi-rotulo">Custo sem impostos</div><div className="kpi-valor">{fmtBRL(semImpostos)}</div><div className="kpi-extra">etapas 2 e 3</div></div>
           <div className="kpi"><div className="kpi-rotulo">Impostos</div><div className="kpi-valor">{fmtBRL(tot.impostos)}</div><div className="kpi-extra">{fmtQtd(tot.impostosPct, 4)} % do custo global</div></div>
-          <div className="kpi"><div className="kpi-rotulo">Outros custos</div><div className="kpi-valor">{fmtBRL(outros)}</div><div className="kpi-extra">{linhas.length} linha(s)</div></div>
-          <div className="kpi" style={{ background: '#fff', border: '2px solid #2f9e44' }}><div className="kpi-rotulo">Custo total do pedido</div><div className="kpi-valor">{fmtBRL(tot.total)}</div><div className="kpi-extra">{alterado ? 'ainda não salvo' : 'base + mão de obra + impostos + outros'}</div></div>
+          <div className="kpi" style={{ background: '#fff', border: '2px solid #2f9e44' }}><div className="kpi-rotulo">Custo total do pedido</div><div className="kpi-valor">{fmtBRL(total)}</div><div className="kpi-extra">{alterado ? 'ainda não salvo' : 'com impostos'}</div></div>
           <div className="kpi" style={prevista && prevista < planejada ? { background: '#fdf2d9', border: '1px solid #e9c46a' } : undefined}>
             <div className="kpi-rotulo">Por unidade</div>
-            <div className="kpi-valor">{planejada ? fmtBRL(tot.total / planejada) : '—'}</div>
-            <div className="kpi-extra">{prevista && prevista < planejada ? `${fmtBRL(tot.total / prevista)} por unidade prevista (${fmtQtd(prevista)} ${p.unidade_producao})` : planejada ? `${fmtQtd(planejada)} ${p.unidade_producao} planejadas` : 'sem quantidade na etapa 2'}</div>
+            <div className="kpi-valor">{planejada ? fmtBRL(total / planejada) : '—'}</div>
+            <div className="kpi-extra">{prevista && prevista < planejada ? `${fmtBRL(total / prevista)} por unidade prevista` : planejada ? `${fmtQtd(planejada)} ${p.unidade_producao} planejadas` : 'sem quantidade na etapa 2'}</div>
           </div>
         </div>
       </div>
