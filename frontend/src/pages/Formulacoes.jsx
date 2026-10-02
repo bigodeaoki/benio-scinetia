@@ -5,6 +5,10 @@ import { api } from '../api.js';
 import { Badge, Campo, Carregando, Erro, Modal, Vazio, confirmar, fmtDataHora, fmtQtd, toast, useDados } from '../ui.jsx';
 
 const PODE_EDITAR = ['owner', 'farmacia'];
+// Pesquisa sem diferenciar maiúsculas nem acentos: "locao" acha "Loção"
+const normalizar = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
+
 
 // Formulações: fórmulas da empresa (e da matriz, para a filial ver). O papel
 // farmácia é o responsável; os demais consultam.
@@ -15,6 +19,9 @@ export default function Formulacoes() {
   const { dados: materias } = useDados(() => api('/materias'), [s.empresaId]);
   const [editando, setEditando] = React.useState(null);
   const [aberta, setAberta] = React.useState(null);
+  const [busca, setBusca] = React.useState('');
+  const termo = normalizar(busca.trim());
+  const lista = (dados || []).filter((f) => !termo || normalizar(f.nome).includes(termo));
   const empresa = s.empresas.find((e) => e.id === s.empresaId);
   const ehFilial = !!empresa?.filial;
 
@@ -43,6 +50,8 @@ export default function Formulacoes() {
       <div className="cartao">
         <div className="cartao-cabecalho">
           <h3><FlaskConical size={15} className="icone-cartao" />Formulações de {empresa ? (empresa.matriz ? `${empresa.nome} (matriz)` : empresa.nome) : ''}</h3>
+          <input type="search" value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Pesquisar pelo nome…" aria-label="Pesquisar formulações pelo nome" style={{ width: 'auto', minWidth: 260 }} />
+          {termo && dados?.length ? <span className="texto-suave">{lista.length} de {dados.length}</span> : null}
           {podeEditar && <button className="botao" onClick={() => setEditando({ novo: true })}>+ Nova formulação</button>}
         </div>
         <div className="alerta alerta-info">
@@ -50,14 +59,14 @@ export default function Formulacoes() {
           {ehFilial && <> Esta filial enxerga também as formulações da matriz; só a matriz altera as dela.</>}
         </div>
         <Erro msg={erro} />
-        {carregando ? <Carregando /> : !dados?.length ? <Vazio msg="Nenhuma formulação cadastrada" /> : (
+        {carregando ? <Carregando /> : !dados?.length ? <Vazio msg="Nenhuma formulação cadastrada" /> : !lista.length ? <Vazio msg={`Nenhuma formulação com “${busca.trim()}” no nome`} /> : (
           <div className="tabela-envolucro">
             <table className="tabela">
               <thead>
                 <tr><th style={{ width: 34 }}></th><th>Formulação</th>{ehFilial && <th>Origem</th>}<th className="num">Matérias-primas</th><th>Descrição</th><th>Status</th><th>Atualizada em</th>{podeEditar && <th className="acoes">Ações</th>}</tr>
               </thead>
               <tbody>
-                {dados.map((f) => (
+                {lista.map((f) => (
                   <React.Fragment key={f.id}>
                     <tr style={f.ativo ? undefined : { opacity: 0.55 }}>
                       <td>
