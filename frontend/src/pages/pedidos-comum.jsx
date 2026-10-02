@@ -9,9 +9,10 @@ export const STATUS = { rascunho: ['Rascunho', 'amarelo'], concluido: ['Concluí
 // Etapas do pedido; as não definidas já aparecem no stepper
 export const ETAPAS = [
   { numero: 1, nome: 'Formulação e amostras', definida: true },
-  { numero: 2, nome: 'Produção', definida: true },
-  { numero: 3, nome: 'Custos', definida: true },
-  { numero: 4, nome: 'Impostos', definida: true },
+  { numero: 2, nome: 'Envase', definida: true },
+  { numero: 3, nome: 'Produção', definida: true },
+  { numero: 4, nome: 'Custos', definida: true },
+  { numero: 5, nome: 'Impostos', definida: true },
 ];
 export const fmtNumero = (n) => `#${String(n).padStart(4, '0')}`;
 
@@ -139,20 +140,13 @@ export function custoMateriaPrima(necessario, unidade, valorCompra, unidadeCompr
   return { custo: Math.round(q * Number(valorCompra) * 100) / 100, aviso: null };
 }
 
-// Custo total do pedido (etapa 3): o custo global da produção é a base; mão de obra e impostos
-// são % dessa base e os outros custos entram em R$. Mesma regra do backend
-export function custoTotalPedido(base, maoDeObraPct, impostosPct, outros) {
+// Custo do pedido: até a etapa 4 tudo é valor fixo em R$ somando no custo global (envase,
+// produção, mão de obra, logística, depreciação e custos avulsos); na etapa 5 os impostos
+// entram como % sobre esse custo global. Mesma regra do backend
+export function custoTotalPedido(valores, impostosPct) {
   const centavos = (v) => Math.round(v * 100) / 100;
-  const valor = (pct) => centavos((Number(base) * (Number(pct) || 0)) / 100);
-  const linhasMaoDeObra = maoDeObraPct.map(valor);
-  const linhasImpostos = impostosPct.map(valor);
-  const soma = (xs) => centavos(xs.reduce((s, x) => s + x, 0));
-  const maoDeObra = soma(linhasMaoDeObra);
-  const impostos = soma(linhasImpostos);
-  return {
-    linhasMaoDeObra, linhasImpostos, maoDeObra, impostos,
-    maoDeObraPct: centavos(maoDeObraPct.reduce((s, x) => s + (Number(x) || 0), 0)), impostosPct: centavos(impostosPct.reduce((s, x) => s + (Number(x) || 0), 0)),
-    outros: centavos(Number(outros) || 0), subtotal: centavos(Number(base) + maoDeObra + (Number(outros) || 0)),
-    total: centavos(Number(base) + maoDeObra + impostos + (Number(outros) || 0)),
-  };
+  const subtotal = centavos(Object.values(valores).reduce((s, v) => s + (Number(v) || 0), 0));
+  const linhasImpostos = impostosPct.map((pct) => centavos((subtotal * (Number(pct) || 0)) / 100));
+  const impostos = centavos(linhasImpostos.reduce((s, v) => s + v, 0));
+  return { subtotal, linhasImpostos, impostos, impostosPct: centavos(impostosPct.reduce((s, p) => s + (Number(p) || 0), 0)), total: centavos(subtotal + impostos) };
 }

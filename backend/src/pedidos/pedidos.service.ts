@@ -8,7 +8,7 @@ import { MateriasService } from '../materias/materias.service';
 import { custoTotalPedido } from '../shared/custos';
 import { novoId } from '../shared/ids';
 import { custoMateriaPrima, necessidade, producaoPrevista } from '../shared/necessidade';
-import { AmostraDto, CustoDto, CustosDto, DepreciacaoPedidoDto, ImpostoPedidoDto, LogisticaPedidoDto, MaoDeObraPedidoDto, MaquinaPedidoDto, PedidoDto, ProducaoDto, TrocaFormulacaoDto, UtilitarioPedidoDto } from './pedidos.dto';
+import { AmostraDto, CustoDto, CustosDto, DepreciacaoPedidoDto, EnvasePedidoDto, EnvasesPedidoDto, ImpostoPedidoDto, LogisticaPedidoDto, MaoDeObraPedidoDto, MaquinaPedidoDto, PedidoDto, ProducaoDto, TrocaFormulacaoDto, UtilitarioPedidoDto } from './pedidos.dto';
 
 const COLUNAS = `p.id, p.matriz_id, p.empresa_id, e.nome AS empresa_nome, p.numero, p.cliente_id, c.razao_social AS cliente_nome, c.nome_fantasia AS cliente_fantasia,
   p.formulacao_id, f.nome AS formulacao_nome, f.empresa_id AS formulacao_empresa_id,
@@ -123,7 +123,7 @@ export class PedidosService {
     );
     const custos_resumo = this.resumoCustos(custos, producao, prevista ? prevista.quantidade : null);
     // Etapa 3: mão de obra por categoria e impostos, em % do custo global; outros custos são as linhas em R$
-    const [maoDeObraSalva]: any = await this.pool.query('SELECT categoria, percentual, ordem FROM pedido_mao_de_obra WHERE pedido_id = ? ORDER BY ordem', [id]);
+    const [maoDeObraSalva]: any = await this.pool.query('SELECT categoria, valor, ordem FROM pedido_mao_de_obra WHERE pedido_id = ? ORDER BY ordem', [id]);
     const [categorias]: any = await this.pool.query(
       `SELECT categoria, COUNT(*) AS funcionarios FROM funcionarios
         WHERE empresa_id = ? AND ativo = 1 AND status <> 'desligado' GROUP BY categoria ORDER BY categoria`,
@@ -150,21 +150,30 @@ export class PedidosService {
     const [depreciacoes]: any = await this.pool.query('SELECT id, nome, valor, ordem FROM pedido_depreciacoes WHERE pedido_id = ? ORDER BY ordem', [id]);
     const custoLogistica = Math.round(logistica.reduce((s: number, v: any) => s + v.custo, 0) * 100) / 100;
     const custoDepreciacao = Math.round(depreciacoes.reduce((s: number, d: any) => s + Number(d.valor), 0) * 100) / 100;
+    // Etapa 2: envase do pedido (quantidade × valor unitário, em R$)
+    const [envaseItens]: any = await this.pool.query(
+      `SELECT pe.id, pe.envase_id, pe.descricao, e.nome AS envase_nome, e.ativo AS envase_ativo, pe.quantidade, pe.unidade, pe.valor_unitario, pe.total, pe.ordem
+         FROM pedido_envases pe JOIN envases e ON e.id = pe.envase_id WHERE pe.pedido_id = ? ORDER BY pe.ordem`,
+      [id],
+    );
+    const custoEnvase = Math.round(envaseItens.reduce((s: number, l: any) => s + Number(l.total), 0) * 100) / 100;
+    const custoMaoDeObra = Math.round(maoDeObraSalva.reduce((s: number, m: any) => s + Number(m.valor), 0) * 100) / 100;
+    // Até a etapa 4 tudo soma em R$ no custo global; os impostos (etapa 5) são % sobre ele
     const totais = custoTotalPedido(
-      custoGlobal, maoDeObraSalva.map((m: any) => Number(m.percentual)), impostosSalvos.map((t: any) => Number(t.percentual)),
-      custos_resumo.total + custoLogistica + custoDepreciacao,
+      { envase: custoEnvase, producao: custoGlobal, mao_de_obra: custoMaoDeObra, logistica: custoLogistica, depreciacao: custoDepreciacao, outros: custos_resumo.total },
+      impostosSalvos.map((t: any) => Number(t.percentual)),
     );
     const porUnidadeTotal = (b: number | null) => (b && b > 0 ? Math.round((totais.total / b) * 10000) / 10000 : null);
     const custo_pedido = {
-      base: custoGlobal, mao_de_obra: totais.mao_de_obra, mao_de_obra_pct: totais.mao_de_obra_pct, logistica: custoLogistica, depreciacao: custoDepreciacao,
-      outros: custos_resumo.total, subtotal: totais.subtotal, impostos: totais.impostos, impostos_pct: totais.impostos_pct, total: totais.total,
+      envase: custoEnvase, producao: custoGlobal, mao_de_obra: custoMaoDeObra, logistica: custoLogistica, depreciacao: custoDepreciacao, outros: custos_resumo.total,
+      subtotal: totais.subtotal, impostos: totais.impostos, impostos_pct: totais.impostos_pct, total: totais.total,
       custo_unitario_planejado: porUnidadeTotal(producao), custo_unitario_previsto: porUnidadeTotal(prevista ? prevista.quantidade : null),
     };
     return {
       ...pedido, formulacoes, amostras, amostras_resumo: this.resumoAmostras(amostras), formulacao_ingredientes: ingredientes, maquinas,
       rendimento_combinado_pct: prevista ? prevista.rendimento_pct : null, producao_prevista: prevista ? prevista.quantidade : null,
-      custos, custos_resumo, custos_producao, utilitarios,
-      mao_de_obra: maoDeObraSalva.map((m: any, i: number) => ({ ...m, valor: totais.linhas_mao_de_obra[i] })), categorias_mao_de_obra: categorias,
+      custos, custos_resumo, custos_producao, utilitarios, envase_itens: envaseItens,
+      mao_de_obra: maoDeObraSalva, categorias_mao_de_obra: categorias,
       impostos: impostosSalvos.map((t: any, i: number) => ({ ...t, valor: totais.linhas_impostos[i] })), impostos_disponiveis: impostosDisponiveis, logistica, depreciacoes, custo_pedido,
     };
   }
@@ -344,8 +353,61 @@ export class PedidosService {
     });
   }
 
-  // Etapa 3 (Custos): outros custos (linhas em R$, nome e valor gravados na hora), mão de obra
-  // por categoria e impostos, estes dois em % do custo global. Lista omitida fica como está
+  // Etapa 2 (Envase): itens de envase do pedido, regravados por inteiro. Nome e valor ficam
+  // gravados no pedido; o custo (quantidade × valor unitário) soma no custo global
+  async definirEnvase(escopo: EscopoSessao, empresaId: string, usuarioId: string, id: string, dto: EnvasesPedidoDto) {
+    const pedido = await this.exigirRascunho(escopo, empresaId, id);
+    const itens = await this.validarEnvasesPedido(pedido, dto.itens);
+    const cx = await this.pool.getConnection();
+    try {
+      await cx.beginTransaction();
+      await cx.query('DELETE FROM pedido_envases WHERE pedido_id = ?', [id]);
+      if (itens.length) {
+        await cx.query('INSERT INTO pedido_envases (id, pedido_id, envase_id, descricao, quantidade, unidade, valor_unitario, total, ordem, usuario_id) VALUES ?', [
+          itens.map((e, i) => [novoId(), id, e.envase_id, e.descricao, e.quantidade, e.unidade, e.valor_unitario, e.total, i + 1, usuarioId]),
+        ]);
+      }
+      await cx.commit();
+    } catch (e) {
+      await cx.rollback();
+      throw e;
+    } finally {
+      cx.release();
+    }
+    await this.auditoria.registrar(null, {
+      matriz_id: pedido.matriz_id, empresa_id: pedido.empresa_id, usuario_id: usuarioId, acao: 'pedido.envase_definido', entidade: 'pedidos', entidade_id: id,
+      detalhes: {
+        numero: pedido.numero, total: Math.round(itens.reduce((s, e) => s + e.total, 0) * 100) / 100,
+        itens: itens.map((e) => ({ envase: e.descricao, quantidade: e.quantidade, valor_unitario: e.valor_unitario })),
+      },
+    });
+    return this.detalhar(escopo, empresaId, id);
+  }
+
+  // Itens de envase da empresa do pedido ou da matriz, ativos (ou já no pedido), sem repetir
+  private async validarEnvasesPedido(pedido: any, lista: EnvasePedidoDto[]) {
+    const ids = lista.map((e) => e.envase_id);
+    if (new Set(ids).size !== ids.length) throw new BadRequestException('Item de envase repetido na lista');
+    if (!ids.length) return [];
+    const [rows]: any = await this.pool.query('SELECT id, nome, ativo FROM envases WHERE id IN (?) AND empresa_id IN (?)', [ids, this.empresasDoPedido(pedido)]);
+    const [jaNoPedido]: any = await this.pool.query('SELECT envase_id FROM pedido_envases WHERE pedido_id = ?', [pedido.id]);
+    const noPedido = new Set<string>(jaNoPedido.map((r: any) => r.envase_id));
+    const porId = new Map<string, any>(rows.map((e: any) => [e.id, e]));
+    return lista.map((item) => {
+      const e = porId.get(item.envase_id);
+      if (!e) throw new BadRequestException('Item de envase não encontrado para a empresa do pedido');
+      if (!e.ativo && !noPedido.has(e.id)) throw new BadRequestException(`Item de envase "${e.nome}" está inativo`);
+      const quantidade = Number(item.quantidade);
+      const valorUnitario = Number(item.valor_unitario);
+      return {
+        envase_id: e.id as string, descricao: String(e.nome).slice(0, 150), quantidade, unidade: item.unidade?.trim() || 'un',
+        valor_unitario: valorUnitario, total: Math.round(quantidade * valorUnitario * 100) / 100,
+      };
+    });
+  }
+
+  // Etapas 4 e 5 (Custos e Impostos): custos avulsos (linhas em R$, nome e valor gravados na hora),
+  // mão de obra por área, logística e depreciação em R$; impostos em % do custo global. Lista omitida fica como está
   async definirCustos(escopo: EscopoSessao, empresaId: string, usuarioId: string, id: string, dto: CustosDto) {
     const pedido = await this.exigirRascunho(escopo, empresaId, id);
     const linhas = dto.itens ? await this.validarCustos(escopo, pedido, dto.itens) : null;
@@ -367,8 +429,8 @@ export class PedidosService {
       if (maoDeObra) {
         await cx.query('DELETE FROM pedido_mao_de_obra WHERE pedido_id = ?', [id]);
         if (maoDeObra.length) {
-          await cx.query('INSERT INTO pedido_mao_de_obra (id, pedido_id, categoria, percentual, ordem, usuario_id) VALUES ?', [
-            maoDeObra.map((m, i) => [novoId(), id, m.categoria, m.percentual, i + 1, usuarioId]),
+          await cx.query('INSERT INTO pedido_mao_de_obra (id, pedido_id, categoria, valor, ordem, usuario_id) VALUES ?', [
+            maoDeObra.map((m, i) => [novoId(), id, m.categoria, m.valor, i + 1, usuarioId]),
           ]);
         }
       }
@@ -417,7 +479,7 @@ export class PedidosService {
   }
 
   // Categorias de mão de obra da empresa do pedido (as dos seus funcionários) ou já gravadas nele,
-  // sem repetir. Percentual zero não é gravado
+  // sem repetir, com valor fixo em R$. Valor zero não é gravado
   private async validarMaoDeObra(pedido: any, lista: MaoDeObraPedidoDto[]) {
     const vistas = new Set<string>();
     for (const m of lista) {
@@ -430,10 +492,10 @@ export class PedidosService {
       [pedido.empresa_id, pedido.id],
     );
     const conhecidas = new Map<string, string>(validas.map((r: any) => [String(r.categoria).toLowerCase(), r.categoria]));
-    return lista.filter((m) => Number(m.percentual) > 0).map((m) => {
+    return lista.filter((m) => Number(m.valor) > 0).map((m) => {
       const nome = conhecidas.get(m.categoria.trim().toLowerCase());
       if (!nome) throw new BadRequestException(`Categoria "${m.categoria.trim()}" não existe na mão de obra de ${pedido.empresa_nome}`);
-      return { categoria: nome, percentual: Number(m.percentual) };
+      return { categoria: nome, valor: Math.round(Number(m.valor) * 100) / 100 };
     });
   }
 
@@ -565,7 +627,7 @@ export class PedidosService {
         });
       }
     }
-    if (etapa > 2 && !(Number(atual.quantidade_producao) > 0)) throw new BadRequestException('Informe a quantidade de produção para avançar');
+    if (etapa > 3 && !(Number(atual.quantidade_producao) > 0)) throw new BadRequestException('Informe a quantidade de produção para avançar');
     if (etapa !== atual.etapa) {
       await this.pool.query('UPDATE pedidos SET etapa = ? WHERE id = ?', [etapa, id]);
       await this.auditoria.registrar(null, {

@@ -5,9 +5,10 @@ import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsInt, IsNumber, IsOptional, Is
 // conteúdo conforme forem desenhadas
 export const ETAPAS = [
   { numero: 1, nome: 'Formulação e amostras', definida: true },
-  { numero: 2, nome: 'Produção', definida: true },
-  { numero: 3, nome: 'Custos', definida: true },
-  { numero: 4, nome: 'Impostos', definida: true },
+  { numero: 2, nome: 'Envase', definida: true },
+  { numero: 3, nome: 'Produção', definida: true },
+  { numero: 4, nome: 'Custos', definida: true },
+  { numero: 5, nome: 'Impostos', definida: true },
 ];
 export const STATUS_PEDIDO = ['rascunho', 'concluido', 'cancelado'] as const;
 const DATA = /^\d{4}-\d{2}-\d{2}$/;
@@ -155,14 +156,13 @@ export class CustoDto {
   valor_unitario?: number;
 }
 
-// Mão de obra do pedido: percentual de uma categoria (das dos funcionários da empresa do pedido) sobre o custo global
+// Mão de obra do pedido: valor fixo em R$ de uma área (as dos funcionários da empresa do pedido)
 export class MaoDeObraPedidoDto {
   @IsString() @Length(1, 60, { message: 'Categoria: entre 1 e 60 caracteres' })
   categoria: string;
 
-  @IsNumber({ maxDecimalPlaces: 4 }, { message: 'Percentual da mão de obra deve ser um número (até 4 casas)' })
-  @Min(0, { message: 'Percentual da mão de obra: de 0 a 1000 %' }) @Max(1000, { message: 'Percentual da mão de obra: de 0 a 1000 %' })
-  percentual: number;
+  @IsNumber({ maxDecimalPlaces: 2 }, { message: 'Mão de obra: valor em R$ com até 2 casas' }) @Min(0, { message: 'Mão de obra: valor não pode ser negativo' })
+  valor: number;
 }
 
 // Imposto do pedido: sem percentual informado, vale o do cadastro
@@ -193,8 +193,8 @@ export class DepreciacaoPedidoDto {
   valor: number;
 }
 
-// Etapas 3 e 4: mão de obra por categoria (% do custo global), logística (horas), depreciação e
-// outros custos (R$) na etapa 3; impostos (% do custo global) na etapa 4.
+// Etapas 4 e 5: mão de obra por área, logística (horas), depreciação e custos avulsos, todos
+// em R$, na etapa 4; impostos (% do custo global) na etapa 5.
 // Lista omitida é mantida como está; lista vazia limpa
 export class CustosDto {
   @IsOptional() @IsArray({ message: 'Itens: lista' }) @ArrayMaxSize(200, { message: 'No máximo 200 linhas de custo' })
@@ -216,4 +216,26 @@ export class CustosDto {
   @IsOptional() @IsArray({ message: 'Depreciação: lista' }) @ArrayMaxSize(50, { message: 'No máximo 50 itens de depreciação' })
   @ValidateNested({ each: true }) @Type(() => DepreciacaoPedidoDto)
   depreciacoes?: DepreciacaoPedidoDto[];
+}
+
+// Etapa 2 (Envase): item de envase do pedido (do cadastro, visível para a empresa do pedido),
+// com quantidade e valor unitário em R$
+export class EnvasePedidoDto {
+  @IsUUID('4', { message: 'Item de envase inválido' })
+  envase_id: string;
+
+  @IsNumber({ maxDecimalPlaces: 3 }, { message: 'Envase: quantidade deve ser um número (até 3 casas)' }) @Min(0, { message: 'Envase: quantidade não pode ser negativa' })
+  quantidade: number;
+
+  @IsOptional() @IsString() @Length(1, 20, { message: 'Envase: unidade entre 1 e 20 caracteres' })
+  unidade?: string;
+
+  @IsNumber({ maxDecimalPlaces: 4 }, { message: 'Envase: valor unitário em R$ (até 4 casas)' }) @Min(0, { message: 'Envase: valor unitário não pode ser negativo' })
+  valor_unitario: number;
+}
+
+export class EnvasesPedidoDto {
+  @IsArray({ message: 'Envase: lista' }) @ArrayMaxSize(50, { message: 'No máximo 50 itens de envase' })
+  @ValidateNested({ each: true }) @Type(() => EnvasePedidoDto)
+  itens: EnvasePedidoDto[];
 }

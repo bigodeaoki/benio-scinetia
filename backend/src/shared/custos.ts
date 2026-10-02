@@ -1,22 +1,25 @@
-// Custo total do pedido (etapas 3 e 4). O custo global da produção (etapa 2: matéria-prima +
-// máquinas + utilitários) é a base: mão de obra (por categoria) e impostos entram como
-// % dessa base, e os custos em R$ (logística, depreciação, outros) somam direto.
-// O subtotal é o custo sem impostos. Cada linha é arredondada a centavos.
+// Custo do pedido. Até a etapa 4 tudo é valor fixo em R$ que vai somando ao custo global:
+// envase (etapa 2), produção (etapa 3: matéria-prima, máquinas e utilitários) e custos
+// (etapa 4: mão de obra, logística, depreciação e custos avulsos). Na etapa 5 os impostos
+// entram como % sobre esse custo global. Cada linha é arredondada a centavos.
 const centavos = (v: number) => Math.round(v * 100) / 100;
 
-export function custoTotalPedido(base: number, maoDeObraPct: number[], impostosPct: number[], outros: number) {
-  const valor = (pct: number) => centavos((Number(base) * Number(pct)) / 100);
-  const linhasMaoDeObra = maoDeObraPct.map(valor);
-  const linhasImpostos = impostosPct.map(valor);
-  const soma = (xs: number[]) => centavos(xs.reduce((s, x) => s + x, 0));
-  const maoDeObra = soma(linhasMaoDeObra);
-  const impostos = soma(linhasImpostos);
-  // Subtotal sem impostos: base + mão de obra + os custos em R$ (logística, depreciação, outros)
-  const subtotal = centavos(Number(base) + maoDeObra + Number(outros));
+export interface ValoresPedido {
+  envase: number;
+  producao: number;
+  mao_de_obra: number;
+  logistica: number;
+  depreciacao: number;
+  outros: number;
+}
+
+export function custoTotalPedido(valores: ValoresPedido, impostosPct: number[]) {
+  const subtotal = centavos(Object.values(valores).reduce((s, v) => s + (Number(v) || 0), 0));
+  const linhasImpostos = impostosPct.map((pct) => centavos((subtotal * (Number(pct) || 0)) / 100));
+  const impostos = centavos(linhasImpostos.reduce((s, v) => s + v, 0));
   return {
-    linhas_mao_de_obra: linhasMaoDeObra, linhas_impostos: linhasImpostos,
-    mao_de_obra: maoDeObra, mao_de_obra_pct: centavos(maoDeObraPct.reduce((s, x) => s + Number(x), 0)),
-    impostos, impostos_pct: centavos(impostosPct.reduce((s, x) => s + Number(x), 0)),
-    outros: centavos(Number(outros)), subtotal, total: centavos(subtotal + impostos),
+    subtotal, linhas_impostos: linhasImpostos, impostos,
+    impostos_pct: centavos(impostosPct.reduce((s, p) => s + (Number(p) || 0), 0)),
+    total: centavos(subtotal + impostos),
   };
 }
